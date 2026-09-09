@@ -2,6 +2,8 @@
 // replaces the iCloud capability from the SwiftData version.
 
 import { typeBadge } from '../components.js';
+import { detectBlocks, formatBlockRange, currentBlock } from '../blocks.js';
+import { dateKey } from '../schedule.js';
 import { el, escapeHtml } from '../ui.js';
 import { icon } from '../icons.js';
 
@@ -16,6 +18,34 @@ export function render(context) {
   const { store, state, syncConfig } = context;
   const settings = store.settings();
   const rules = store.all('importRules').sort((a, b) => a.matchText.localeCompare(b.matchText));
+
+  // Blocks are inferred from when courses actually run, so show the working out:
+  // if a block looks wrong, that's visible here rather than buried in a filter.
+  const blocks = detectBlocks(store);
+  const active = currentBlock(blocks, dateKey(new Date()));
+  const blocksSection = blocks.length === 0
+    ? `<p class="field-hint">${store.all('occurrences').length === 0
+        ? 'No dated classes yet. Import your calendar and blocks are worked out from when each course runs.'
+        : 'Not enough dated classes yet to tell blocks apart.'}</p>`
+    : `<div class="list-card">
+        ${blocks.map((block) => {
+          const isActive = active && block.start === active.start && block.label === active.label;
+          const names = block.subjectIds
+            .map((id) => store.get('subjects', id))
+            .filter(Boolean)
+            .map((subject) => subject.name)
+            .sort();
+          return `
+            <div class="block-row ${isActive ? 'is-active' : ''}">
+              <span class="subject-row-main">
+                <span class="row-title">${escapeHtml(block.label)}${isActive ? '<span class="now-chip">now</span>' : ''}</span>
+                <span class="row-details"><span class="row-meta">${escapeHtml(block.semesterLabel)} · ${escapeHtml(formatBlockRange(block))}</span></span>
+                <span class="row-details"><span class="row-meta">${escapeHtml(names.join(' · ') || 'no courses')}</span></span>
+              </span>
+            </div>`;
+        }).join('')}
+      </div>
+      <p class="field-hint">Worked out from the calendar: courses that start and finish together are treated as one block. Only the current block's courses are offered when picking a subject.</p>`;
 
   const mirrorRow = state.mirrorAvailable
     ? `<p class="field-hint good">${icon('checkmark')}A daily mirror of your calendar is published with the app — importing uses it automatically, so no CORS workaround is needed.</p>`
@@ -77,6 +107,9 @@ export function render(context) {
         <input type="file" accept=".ics,text/calendar" data-ics-file hidden />
         <p class="field-hint">Paste your calendar's iCal (.ics) link and the schedule builds itself — each class's type and subject are detected from its title. In Google Calendar: Settings → pick your calendar → "Integrate calendar" → copy "Secret address in iCal format".</p>
         ${mirrorRow}
+        ${store.all('classes').length > 0 && store.all('occurrences').length === 0
+          ? '<p class="field-hint bad">Your classes were carried over from the previous version, which stored a weekly pattern rather than real dates. Import the calendar once to fill in the actual dates — the week view and block detection need them.</p>'
+          : ''}
         <details class="disclosure">
           <summary>Calendar won't download?</summary>
           <p class="field-hint">Browsers can't read most .ics URLs directly — the calendar server has to allow it, and Google's doesn't. Either import the file by hand with the button above, publish the daily mirror (README), or route the download through a CORS proxy below. A proxy sees your calendar URL, so only use one you trust.</p>
@@ -88,6 +121,11 @@ export function render(context) {
           </label>
           <p class="field-hint">Must contain <code>{url}</code>, which is replaced with the encoded calendar address.</p>
         </details>
+      </section>
+
+      <section class="settings-group">
+        <h2>Detected Blocks</h2>
+        ${blocksSection}
       </section>
 
       <section class="settings-group">

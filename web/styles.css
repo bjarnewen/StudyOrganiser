@@ -787,3 +787,235 @@ textarea.field-input { resize: vertical; min-height: 84px; }
   * { transition: none !important; animation: none !important; }
   .card:active { transform: none; }
 }
+
+/* ------------------------------------------------------------- week grid */
+
+.week-grid {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 4px;
+  /* Tall enough that a 45-minute class is still readable. */
+  height: calc(var(--hour-count, 10) * 58px + 44px);
+  min-height: 420px;
+}
+
+.week-gutter {
+  position: relative;
+  margin-top: 44px; /* clears the day headers */
+}
+
+.hour-label {
+  position: absolute;
+  right: 6px;
+  transform: translateY(-50%);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.week-columns {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  min-width: 0;
+}
+
+.week-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.week-column-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 5px;
+  height: 44px;
+  padding-bottom: 6px;
+}
+
+.week-day {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.week-date {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.week-column.is-today .week-day,
+.week-column.is-today .week-date { color: var(--accent); }
+
+.week-column-body {
+  position: relative;
+  flex: 1;
+  border-radius: 10px;
+  background: var(--fill);
+  /* One faint line per hour, so blocks read against a time ruler. */
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--separator) 0 1px,
+    transparent 1px calc(100% / var(--hour-count, 10))
+  );
+  background-size: 100% calc(100% / var(--hour-count, 10));
+}
+
+.week-column.is-today .week-column-body {
+  background-color: var(--accent-soft);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.week-event {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+  padding: 5px 7px;
+  border: none;
+  border-left: 3px solid var(--event-colour, var(--accent));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--event-colour, var(--accent)) 18%, var(--surface));
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-height: 22px;
+}
+
+.week-event:hover { filter: brightness(1.06); z-index: 3; }
+
+.week-event-title {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.week-event-meta {
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A short class has room for one line only. */
+.week-event.short { padding: 3px 6px; }
+.week-event.short .week-event-meta:nth-of-type(2) { display: none; }
+
+.week-event-flag {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  display: flex;
+  color: var(--red);
+}
+
+.week-event-flag .icon { width: 13px; height: 13px; stroke-width: 2.2; }
+
+.week-empty {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--text-secondary);
+}
+
+.icon-button .icon.flip { transform: rotate(180deg); }
+
+/* Below tablet width five columns get too narrow to read, so let them scroll. */
+@media (max-width: 700px) {
+  .week-grid { overflow-x: auto; }
+  .week-columns { min-width: 560px; }
+}
+
+/* --------------------------------------------------- today, blocks, checks */
+
+.day-block { display: flex; flex-direction: column; gap: 10px; }
+
+.section-header .day-label { margin-right: 2px; }
+
+.section-header .day-date {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.reminder-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--red) 16%, transparent);
+  color: var(--red);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.reminder-badge .icon { width: 13px; height: 13px; stroke-width: 2.2; }
+
+.class-row.has-reminder { box-shadow: var(--shadow), inset 0 0 0 1.5px color-mix(in srgb, var(--red) 40%, transparent); }
+
+.block-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.block-header > span:first-child { display: flex; align-items: center; gap: 8px; }
+
+.block-meta {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.now-chip,
+.block-chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.block-chip {
+  background: var(--fill);
+  color: var(--text-secondary);
+  text-transform: none;
+  font-weight: 500;
+  letter-spacing: 0;
+  font-size: 12px;
+  margin-left: 6px;
+}
+
+.block-row { display: flex; padding: 11px 14px; }
+.block-row.is-active { background: var(--accent-soft); }
+
+.assignment-main.static { cursor: default; background: none; }
+.assignment-main.static:hover { background: none; }
+
+.row-meta.muted { color: var(--text-tertiary); }
+
+.due-flag { color: var(--red); width: 18px; height: 18px; }

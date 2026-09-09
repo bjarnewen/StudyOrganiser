@@ -7,8 +7,13 @@ import { fetchCalendarText, fetchMirror, mirrorAvailable, readFileAsText } from 
 import {
   CLASS_TYPES, PRIORITIES, SUBJECT_PALETTE, subjectColor, timeString,
 } from './domain.js';
+import {
+  nextOccurrenceForSubject, allCheckItems, assignmentsDueAtOccurrence,
+  dateFromKey, todayKey,
+} from './schedule.js';
+import { detectBlocks, currentlyTaughtSubjectIds, formatBlockRange } from './blocks.js';
 import { icon, SECTION_SYMBOLS, TYPE_SYMBOLS } from './icons.js';
-import { typeBadge } from './components.js';
+import { typeBadge, checkItemRow } from './components.js';
 import {
   el, escapeHtml, openSheet, confirmSheet, toast,
   textField, textAreaField, selectField, segmentedField,
@@ -48,6 +53,7 @@ let syncConfig = loadSyncConfig();
 
 const state = {
   section: 'today',
+  weekOffset: 0,
   assignmentFilterSubjectId: null,
   mirrorAvailable: false,
   lastSyncedAt: syncConfig.lastSyncedAt || 0,
@@ -108,119 +114,183 @@ function applyRoute() {
 
 // ------------------------------------------------------------------ sheets
 
-function subjectOptions(selectedId) {
-  return [
-    { value: '', label: 'None' },
-    ...store.all('subjects')
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((subject) => ({ value: subject.id, label: subject.name })),
-  ].map((option) => ({ ...option, selected: option.value === selectedId }));
+/// Only courses in the current block are offered, so a picker isn't cluttered
+/// with next semester's modules. Whatever is already selected always stays in
+/// the list — otherwise editing an older item would silently re-point it.
+function subjectOptions(selectedId, { includeNone = true } = {}) {
+  const taught = currentlyTaughtSubjectIds(store);
+  const options = store.all('subjects')
+    .filter((subject) => !taught || taught.has(subject.id) || subject.id === selectedId)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((subject) => ({ value: subject.id, label: subject.name }));
+  return includeNone ? [{ value: '', label: 'None' }, ...options] : options;
 }
 
-/// Port of ClassDetailView: the class's details plus its running list of
-/// follow-up notes, which stay attached so they resurface next time it comes around.
-async function openClassDetail(entryId) {
-  const entry = store.get('scheduleEntries', entryId);
-  if (!entry) return;
-  const subject = store.get('subjects', entry.subjectId);
+/// The class pop-up: what this class is, what's due by it, and a running list
+/// of things to check before the *next* one — lecture or tutorial, whichever
+/// comes first for that course.
+async function openClassDetail(occurrenceId) {
+  const occurrence = store.get('occurrences', occurrenceId);
+  if (!occurrence) return;
+  const subject = store.get('subjects', occurrence.subjectId);
+  const date = dateFromKey(occurrence.date);
 
   await openSheet({
-    title: subject?.name || entry.title,
+    title: subject?.name || occurrence.title || 'Class',
     confirmLabel: 'Done',
     hideCancel: true,
     bodyHtml: `
       <div class="detail-summary">
-        ${typeBadge(entry.type)}
-        <span class="detail-time">${escapeHtml(timeString(entry.startMinutes))} – ${escapeHtml(timeString(entry.endMinutes))}</span>
+        ${typeBadge(occurrence.type)}
+        <span class="detail-time">${escapeHtml(timeString(occurrence.startMinutes))} – ${escapeHtml(timeString(occurrence.endMinutes))}</span>
       </div>
-      ${entry.location ? `<p class="detail-location">${icon('mappin.and.ellipse')}${escapeHtml(entry.location)}</p>` : ''}
+      <p class="detail-location">${icon('calendar')}${escapeHtml(date.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }))}</p>
+      ${occurrence.location ? `<p class="detail-location">${icon('mappin.and.ellipse')}${escapeHtml(occurrence.location)}</p>` : ''}
+      <div data-due-host></div>
       <div class="field">
-        <span class="field-label">Add a note</span>
+        <span class="field-label">Check before the next class</span>
         <div class="inline-add">
-          <input class="field-input" type="text" data-note-text placeholder="e.g. Review chapter 3 before next class" />
-          <button type="button" class="secondary-button" data-add-note>Add</button>
+          <input class="field-input" type="text" data-check-text placeholder="e.g. Review chapter 3" />
+          <button type="button" class="secondary-button" data-add-check>Add</button>
         </div>
-        <p class="field-hint">Notes stay attached to this class, so they're here again next time it comes around.</p>
+        <p class="field-hint" data-next-hint></p>
       </div>
-      <div data-notes-host></div>`,
+      <div data-checks-host></div>`,
     onRender(form) {
-      const host = form.querySelector('[data-notes-host]');
-      const input = form.querySelector('[data-note-text]');
+      const checksHost = form.querySelector('[data-checks-host]');
+      const dueHost = form.querySelector('[data-due-host]');
+      const hint = form.querySelector('[data-next-hint]');
+      const input = form.querySelector('[data-check-text]');
 
-      function notesHtml() {
-        const notes = store.all('classNotes')
-          .filter((note) => note.scheduleEntryId === entryId)
-          .sort((a, b) => b.createdAt - a.createdAt);
-        if (notes.length === 0) return '';
-        return `
-          <h3 class="group-header">Follow-up Notes</h3>
+      function refresh() {
+        const next = nextOccurrenceForSubject(store, occurrence.subjectId);
+        hint.textContent = next
+          ? `These show up in Assignments and flag the class. Next ${subject?.name || 'class'}: ${dateFromKey(next.date).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' })} at ${timeString(next.startMinutes)}.`
+          : 'These show up in Assignments. No further classes are scheduled for this course.';
+
+        const due = assignmentsDueAtOccurrence(store, occurrence);
+        dueHost.innerHTML = due.length === 0 ? '' : `
+          <div class="field">
+            <span class="field-label">Due by this class</span>
+            <div class="list-card">
+              ${due.map((assignment) => `
+                <div class="assignment-row">
+                  ${icon('flag.fill', { className: 'due-flag' })}
+                  <span class="assignment-main static"><span class="row-title">${escapeHtml(assignment.title)}</span></span>
+                </div>`).join('')}
+            </div>
+          </div>`;
+
+        const items = allCheckItems(store, occurrence.subjectId);
+        checksHost.innerHTML = items.length === 0 ? '' : `
           <div class="list-card">
-            ${notes.map((note) => `
-              <div class="note-row ${note.isResolved ? 'done' : ''}">
-                <button type="button" class="toggle-button" data-toggle-note="${escapeHtml(note.id)}"
-                  aria-label="${note.isResolved ? 'Mark as unresolved' : 'Mark as resolved'}">
-                  ${icon(note.isResolved ? 'checkmark.circle.fill' : 'circle', { className: note.isResolved ? 'checked' : '' })}
+            ${items.map((item) => `
+              <div class="note-row ${item.isResolved ? 'done' : ''}">
+                <button type="button" class="toggle-button" data-toggle-check="${escapeHtml(item.id)}"
+                  aria-label="${item.isResolved ? 'Mark as not done' : 'Mark as done'}">
+                  ${icon(item.isResolved ? 'checkmark.circle.fill' : 'circle', { className: item.isResolved ? 'checked' : '' })}
                 </button>
-                <span class="note-text">${escapeHtml(note.text)}</span>
-                <button type="button" class="icon-button destructive" data-delete-note="${escapeHtml(note.id)}" aria-label="Delete note">${icon('trash')}</button>
+                <span class="note-text">${escapeHtml(item.text)}</span>
+                <button type="button" class="icon-button destructive" data-delete-check="${escapeHtml(item.id)}" aria-label="Delete">${icon('trash')}</button>
               </div>`).join('')}
           </div>`;
       }
 
-      function refreshNotes() { host.innerHTML = notesHtml(); }
-
-      function addNote() {
+      function addItem() {
         const text = input.value.trim();
         if (!text) return;
-        store.insert('classNotes', { text, isResolved: false, scheduleEntryId: entryId });
+        store.insert('checkItems', { text, isResolved: false, subjectId: occurrence.subjectId });
         input.value = '';
-        refreshNotes();
+        refresh();
       }
 
-      form.querySelector('[data-add-note]').addEventListener('click', addNote);
+      form.querySelector('[data-add-check]').addEventListener('click', addItem);
       input.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') {
           event.preventDefault();
-          addNote();
+          addItem();
         }
       });
 
-      host.addEventListener('click', (event) => {
-        const toggle = event.target.closest('[data-toggle-note]');
+      checksHost.addEventListener('click', (event) => {
+        const toggle = event.target.closest('[data-toggle-check]');
         if (toggle) {
-          const note = store.get('classNotes', toggle.dataset.toggleNote);
-          if (note) store.update('classNotes', note.id, { isResolved: !note.isResolved });
-          refreshNotes();
+          const item = store.get('checkItems', toggle.dataset.toggleCheck);
+          if (item) store.update('checkItems', item.id, { isResolved: !item.isResolved });
+          refresh();
           return;
         }
-        const remove = event.target.closest('[data-delete-note]');
+        const remove = event.target.closest('[data-delete-check]');
         if (remove) {
-          store.remove('classNotes', remove.dataset.deleteNote);
-          refreshNotes();
+          store.remove('checkItems', remove.dataset.deleteCheck);
+          refresh();
         }
       });
 
-      refreshNotes();
+      refresh();
     },
     onConfirm: () => true,
   });
 }
 
-/// Port of AssignmentEditView.
+/// The assignment editor. An assignment is either due on a date, or "by the
+/// next class" of its course — which resolves to the soonest lecture *or*
+/// tutorial, so it keeps moving forward on its own week to week.
 async function openAssignmentEditor(assignmentId) {
   const assignment = assignmentId ? store.get('assignments', assignmentId) : null;
-  const dueDate = assignment ? assignment.dueDate : Date.now();
+  const dueDate = assignment?.dueDate || Date.now();
+  const mode = assignment?.dueMode === 'class' ? 'class' : 'date';
 
   const result = await openSheet({
     title: assignment ? 'Edit Assignment' : 'New Assignment',
     bodyHtml: `
       ${textField({ name: 'title', label: 'Title', value: assignment?.title || '', placeholder: 'e.g. Problem set 3' })}
-      ${textField({ name: 'dueDate', label: 'Due', value: toLocalInputValue(dueDate), type: 'datetime-local' })}
       ${selectField({ name: 'subjectId', label: 'Subject', value: assignment?.subjectId || '', options: subjectOptions(assignment?.subjectId) })}
+      ${segmentedField({
+        name: 'dueMode',
+        label: 'Due',
+        value: mode,
+        options: [{ value: 'date', label: 'On a date' }, { value: 'class', label: 'By next class' }],
+      })}
+      <div data-due-date-field>
+        ${textField({ name: 'dueDate', label: 'Due date', value: toLocalInputValue(dueDate), type: 'datetime-local' })}
+      </div>
+      <p class="field-hint" data-due-class-hint hidden></p>
       ${segmentedField({ name: 'priority', label: 'Priority', value: assignment ? assignment.priority : 1, options: PRIORITIES.map((p) => ({ value: p.value, label: p.label })) })}
       ${textAreaField({ name: 'notes', label: 'Notes', value: assignment?.notes || '' })}
       ${assignment ? '<div class="button-row"><button type="button" class="secondary-button destructive" data-delete>Delete assignment</button></div>' : ''}`,
     onRender(form, { close }) {
+      const dateField = form.querySelector('[data-due-date-field]');
+      const classHint = form.querySelector('[data-due-class-hint]');
+      const subjectSelect = form.querySelector('[name=subjectId]');
+
+      function syncDueMode() {
+        const chosen = form.querySelector('[name=dueMode]:checked')?.value || 'date';
+        const byClass = chosen === 'class';
+        dateField.hidden = byClass;
+        classHint.hidden = !byClass;
+        if (!byClass) return;
+
+        const subjectId = subjectSelect.value;
+        if (!subjectId) {
+          classHint.textContent = 'Pick a subject above — "by next class" needs a course to follow.';
+          classHint.classList.add('bad');
+          return;
+        }
+        classHint.classList.remove('bad');
+        const next = nextOccurrenceForSubject(store, subjectId);
+        const subject = store.get('subjects', subjectId);
+        classHint.textContent = next
+          ? `Due by the next ${subject?.name || 'class'} — ${next.type.toLowerCase()} on ${dateFromKey(next.date).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' })} at ${timeString(next.startMinutes)}. This moves to the following class automatically.`
+          : `No further ${subject?.name || ''} classes are scheduled, so this won't show a date until the calendar has one.`;
+      }
+
+      for (const radio of form.querySelectorAll('[name=dueMode]')) {
+        radio.addEventListener('change', syncDueMode);
+      }
+      subjectSelect.addEventListener('change', syncDueMode);
+      syncDueMode();
+
       const deleteButton = form.querySelector('[data-delete]');
       if (deleteButton) {
         deleteButton.addEventListener('click', async () => {
@@ -243,10 +313,19 @@ async function openAssignmentEditor(assignmentId) {
         form.querySelector('[name=title]').focus();
         return false;
       }
+      const dueMode = String(data.get('dueMode') || 'date');
+      const subjectId = String(data.get('subjectId') || '') || null;
+      if (dueMode === 'class' && !subjectId) {
+        form.querySelector('[data-due-class-hint]').classList.add('bad');
+        form.querySelector('[name=subjectId]').focus();
+        return false;
+      }
       return {
         title,
+        subjectId,
+        dueMode,
         dueDate: fromLocalInputValue(String(data.get('dueDate'))),
-        subjectId: String(data.get('subjectId') || '') || null,
+        dueSubjectId: dueMode === 'class' ? subjectId : null,
         priority: Number(data.get('priority')),
         notes: String(data.get('notes') || ''),
       };
@@ -530,9 +609,12 @@ async function importCalendarText(icsText, sourceLabel) {
   store.updateSettings({ lastImportAt: Date.now() });
 
   const parts = [`${summary.totalDistinctClasses} ${summary.totalDistinctClasses === 1 ? 'class' : 'classes'} on your schedule`];
+  if (summary.occurrencesWritten) parts.push(`${summary.occurrencesWritten} dated sessions`);
   if (summary.newSubjectsCreated > 0) {
     parts.push(`${summary.newSubjectsCreated} new ${summary.newSubjectsCreated === 1 ? 'subject' : 'subjects'} created`);
   }
+  if (summary.occurrencesRemoved > 0) parts.push(`${summary.occurrencesRemoved} removed`);
+  state.hasUnboundedSeries = Boolean(summary.hasUnboundedSeries);
   state.importFailed = false;
   state.importMessage = `${parts.join(' · ')} (from ${sourceLabel})`;
   scheduleRender();
@@ -588,8 +670,29 @@ function exportBackup() {
 content.addEventListener('click', async (event) => {
   const target = event.target;
 
-  const entryButton = target.closest('[data-entry-id]');
-  if (entryButton) return openClassDetail(entryButton.dataset.entryId);
+  const occurrenceButton = target.closest('[data-occurrence-id]');
+  if (occurrenceButton) return openClassDetail(occurrenceButton.dataset.occurrenceId);
+
+  const weekStep = target.closest('[data-week-step]');
+  if (weekStep) {
+    const step = Number(weekStep.dataset.weekStep);
+    state.weekOffset = step === 0 ? 0 : (state.weekOffset || 0) + step;
+    scheduleRender();
+    return undefined;
+  }
+
+  const toggleCheck = target.closest('[data-toggle-check]');
+  if (toggleCheck) {
+    const item = store.get('checkItems', toggleCheck.dataset.toggleCheck);
+    if (item) store.update('checkItems', item.id, { isResolved: !item.isResolved });
+    return undefined;
+  }
+
+  const deleteCheck = target.closest('[data-delete-check]');
+  if (deleteCheck) {
+    store.remove('checkItems', deleteCheck.dataset.deleteCheck);
+    return undefined;
+  }
 
   const toggleAssignment = target.closest('[data-toggle-assignment]');
   if (toggleAssignment) {

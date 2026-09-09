@@ -1,21 +1,26 @@
-// Port of Sources/Services/ICSImporter.swift.
+// Turning a parsed calendar into the app's data.
+//
+// Two things come out of an import:
+//   * a *class* per distinct calendar series — "Calculus 1, Lecture" — which is
+//     what notes, rules and assignments hang off;
+//   * an *occurrence* per concrete date that class actually runs.
+//
+// Storing the dates rather than a weekday is what lets the week view show a
+// real calendar, and lets the app tell which courses are running right now.
 
 import { guessClassType, guessSubjectName, normalize, SUBJECT_PALETTE } from './domain.js';
+import { expandOccurrences } from './ics.js';
 
-/// Fully automatic import: for every class title not seen before, guesses its
-/// type (Lecture/Tutorial/Practical/Exam/Other) and subject (matching an existing
-/// subject by name, or creating a new one), saves that as a reusable import rule,
-/// then creates/updates the schedule entries. No user interaction required —
-/// mistakes can be corrected afterward by editing the rule in Settings.
+/// Fully automatic import: every class title not seen before gets its type and
+/// subject guessed and saved as a reusable rule, then the classes and their
+/// dates are written. Corrections happen afterwards in Settings.
 export function autoImport(events, store) {
   return store.batch((tx) => {
     const ruleMap = new Map();
     for (const rule of tx.all('importRules')) ruleMap.set(rule.matchText, rule);
 
-    const subjectByNormalizedName = new Map();
-    for (const subject of tx.all('subjects')) {
-      subjectByNormalizedName.set(normalize(subject.name), subject);
-    }
+    const subjectByName = new Map();
+    for (const subject of tx.all('subjects')) subjectByName.set(normalize(subject.name), subject);
 
     const grouped = new Map();
     for (const event of events) {
@@ -29,119 +34,134 @@ export function autoImport(events, store) {
 
     for (const [key, group] of grouped) {
       if (ruleMap.has(key)) continue;
-
       const sampleTitle = group[0].summary;
-      const type = guessClassType(sampleTitle);
       const subjectName = guessSubjectName(sampleTitle);
-      const normalizedSubjectName = normalize(subjectName);
+      const normalizedName = normalize(subjectName);
 
-      let subject = subjectByNormalizedName.get(normalizedSubjectName);
+      let subject = subjectByName.get(normalizedName);
       if (!subject) {
-        const colorHex = SUBJECT_PALETTE[subjectByNormalizedName.size % SUBJECT_PALETTE.length];
+        const colorHex = SUBJECT_PALETTE[subjectByName.size % SUBJECT_PALETTE.length];
         subject = tx.insert('subjects', { name: subjectName, colorHex });
-        subjectByNormalizedName.set(normalizedSubjectName, subject);
+        subjectByName.set(normalizedName, subject);
         newSubjectsCreated += 1;
       }
 
-      const rule = tx.insert('importRules', { matchText: key, type, subjectId: subject.id });
-      ruleMap.set(key, rule);
+      ruleMap.set(key, tx.insert('importRules', {
+        matchText: key,
+        type: guessClassType(sampleTitle),
+        subjectId: subject.id,
+      }));
       newClassesClassified += 1;
     }
 
-    applyImport(events, [...ruleMap.values()], tx);
+    const stats = applyImport(events, [...ruleMap.values()], tx);
 
     return {
       totalDistinctClasses: ruleMap.size,
       newClassesClassified,
       newSubjectsCreated,
+      ...stats,
     };
   });
 }
 
-/// Creates or updates schedule entries for every parsed event that has a
-/// matching import rule.
+/// Creates or updates the class series and their dated occurrences.
 export function applyImport(events, rules, tx) {
   const ruleMap = new Map();
   for (const rule of rules) ruleMap.set(rule.matchText, rule);
 
-  const entriesByUID = new Map();
-  for (const entry of tx.all('scheduleEntries')) {
-    if (entry.sourceUID) entriesByUID.set(entry.sourceUID, entry);
+  const classByMatchKey = new Map();
+  for (const klass of tx.all('classes')) classByMatchKey.set(klass.matchKey, klass);
+
+  const occurrenceByUID = new Map();
+  for (const occurrence of tx.all('occurrences')) {
+    if (occurrence.sourceUID) occurrenceByUID.set(occurrence.sourceUID, occurrence);
   }
+
+  const touchedClassIds = new Set();
+  const seenOccurrenceUIDs = new Set();
+  let unboundedSeries = 0;
 
   for (const event of events) {
     const key = normalize(event.summary);
     const rule = ruleMap.get(key);
     if (!rule) continue;
 
-    if (event.isRecurringWeekly) {
-      for (const weekday of event.weekdays) {
-        const compositeUID = `${event.uid}-${weekday}`;
-        upsert(tx, {
-          uid: compositeUID,
-          matchKey: key,
-          title: event.summary,
-          type: rule.type,
-          dayOfWeek: weekday,
-          startMinutes: event.startMinutes,
-          endMinutes: event.endMinutes,
-          location: event.location,
-          isRecurringWeekly: true,
-          specificDate: null,
-          subjectId: rule.subjectId,
-          existing: entriesByUID.get(compositeUID),
-        });
-      }
+    let klass = classByMatchKey.get(key);
+    if (klass) {
+      tx.update('classes', klass.id, {
+        title: event.summary,
+        type: rule.type,
+        location: event.location,
+        subjectId: rule.subjectId,
+      });
     } else {
-      upsert(tx, {
-        uid: event.uid,
+      klass = tx.insert('classes', {
         matchKey: key,
         title: event.summary,
         type: rule.type,
-        dayOfWeek: event.weekdays[0] ?? 1,
-        startMinutes: event.startMinutes,
-        endMinutes: event.endMinutes,
         location: event.location,
-        isRecurringWeekly: false,
-        specificDate: event.specificDate,
         subjectId: rule.subjectId,
-        existing: entriesByUID.get(event.uid),
       });
+      classByMatchKey.set(key, klass);
+    }
+    touchedClassIds.add(klass.id);
+
+    for (const occurrence of expandOccurrences(event)) {
+      if (!occurrence.bounded) unboundedSeries += 1;
+      const sourceUID = `${event.uid}::${occurrence.date}`;
+      seenOccurrenceUIDs.add(sourceUID);
+      const existing = occurrenceByUID.get(sourceUID);
+      const fields = {
+        classId: klass.id,
+        subjectId: rule.subjectId,
+        date: occurrence.date,
+        startMinutes: occurrence.startMinutes,
+        endMinutes: occurrence.endMinutes,
+        location: event.location,
+        type: rule.type,
+      };
+      if (existing) {
+        tx.update('occurrences', existing.id, fields);
+      } else {
+        tx.insert('occurrences', { ...fields, sourceUID });
+      }
     }
   }
-}
 
-function upsert(tx, fields) {
-  const {
-    uid, matchKey, title, type, dayOfWeek, startMinutes, endMinutes,
-    location, isRecurringWeekly, specificDate, subjectId, existing,
-  } = fields;
-
-  if (existing) {
-    // dayOfWeek and isRecurringWeekly are deliberately not refreshed here: the
-    // Swift original leaves them alone so a weekly entry keeps the weekday its
-    // composite UID was created for.
-    tx.update('scheduleEntries', existing.id, {
-      title, type, matchKey, subjectId, startMinutes, endMinutes, location, specificDate,
-    });
-  } else {
-    tx.insert('scheduleEntries', {
-      title, type, dayOfWeek, startMinutes, endMinutes, location,
-      isRecurringWeekly, specificDate, sourceUID: uid, matchKey, subjectId,
-    });
+  // A class that moved or was cancelled leaves occurrences behind on its old
+  // dates. Anything belonging to a class this import touched but not produced
+  // by it is stale, so drop it rather than let a ghost class sit in the week.
+  let removed = 0;
+  for (const occurrence of tx.all('occurrences')) {
+    if (!touchedClassIds.has(occurrence.classId)) continue;
+    if (seenOccurrenceUIDs.has(occurrence.sourceUID)) continue;
+    tx.remove('occurrences', occurrence.id);
+    removed += 1;
   }
+
+  return {
+    occurrencesWritten: seenOccurrenceUIDs.size,
+    occurrencesRemoved: removed,
+    hasUnboundedSeries: unboundedSeries > 0,
+  };
 }
 
-/// Re-applies a corrected rule to every schedule entry it already produced,
-/// matching EditImportRuleView.save().
+/// Re-applies a corrected rule to the class it produced and every dated
+/// occurrence of it, so a fix in Settings shows up everywhere at once.
 export function applyRuleCorrection(store, ruleId, { type, subjectId }) {
   store.batch((tx) => {
     const rule = tx.get('importRules', ruleId);
     if (!rule) return;
     tx.update('importRules', ruleId, { type, subjectId });
-    for (const entry of tx.all('scheduleEntries')) {
-      if (entry.matchKey === rule.matchText) {
-        tx.update('scheduleEntries', entry.id, { type, subjectId });
+
+    for (const klass of tx.all('classes')) {
+      if (klass.matchKey !== rule.matchText) continue;
+      tx.update('classes', klass.id, { type, subjectId });
+      for (const occurrence of tx.all('occurrences')) {
+        if (occurrence.classId === klass.id) {
+          tx.update('occurrences', occurrence.id, { type, subjectId });
+        }
       }
     }
   });

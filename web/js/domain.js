@@ -36,11 +36,38 @@ function escapeRegExp(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/// Strips the class-type indicator (and surrounding punctuation) out of a
-/// calendar event title, leaving what's most likely the course/subject name.
-/// E.g. "Lecture: Linear Algebra" -> "Linear Algebra".
+const LEADING_TYPE_LABEL = new RegExp(
+  `^\\s*(?:${ALL_KEYWORDS.map(escapeRegExp).join('|')})\\b\\s*[:\\-–—]\\s*(.+)$`,
+  'i',
+);
+
+const ANY_KEYWORD = new RegExp(`(?:${ALL_KEYWORDS.map(escapeRegExp).join('|')})`, 'i');
+
+/// Strips the class-type indicator out of a calendar event title, leaving what's
+/// most likely the course name. E.g. "Lecture: Linear Algebra" -> "Linear Algebra".
+///
+/// Timetables overwhelmingly write the type as a label in front of the name, so
+/// that shape is handled first and the rest of the title is kept verbatim. That
+/// matters for a course whose own name contains a type word: blanket-stripping
+/// turns "Practical: Physics: Lab Skills" into "Physics Skills", where taking
+/// only the leading label gives "Physics: Lab Skills".
 export function guessSubjectName(title) {
-  let cleaned = stripLeadingCourseCode(title || '');
+  const withoutCode = stripLeadingCourseCode(title || '').trim();
+
+  const labelled = withoutCode.match(LEADING_TYPE_LABEL);
+  if (labelled) {
+    const name = labelled[1].trim();
+    if (name !== '') return name;
+  }
+
+  // No type word anywhere: the title is already the course name, punctuation included.
+  if (!ANY_KEYWORD.test(withoutCode)) {
+    return withoutCode === '' ? (title || '').trim() : withoutCode;
+  }
+
+  // A type word sits somewhere else in the title, so fall back to removing it
+  // wherever it appears and tidying up the punctuation left behind.
+  let cleaned = withoutCode;
   for (const keyword of ALL_KEYWORDS) {
     cleaned = cleaned.replace(new RegExp(escapeRegExp(keyword), 'gi'), ' ');
   }

@@ -2,7 +2,7 @@
 // precached on install and served stale-while-revalidate afterwards: pages open
 // instantly and with no network at all, and a new deploy lands on the next launch.
 
-const CACHE = 'study-organiser-v1';
+const CACHE = 'study-organiser-v2';
 
 const SHELL = [
   './',
@@ -14,12 +14,14 @@ const SHELL = [
   './icons/icon-512.png',
   './icons/favicon.svg',
   './js/app.js',
+  './js/blocks.js',
   './js/calendar.js',
   './js/components.js',
   './js/domain.js',
   './js/icons.js',
   './js/ics.js',
   './js/importer.js',
+  './js/schedule.js',
   './js/store.js',
   './js/sync.js',
   './js/ui.js',

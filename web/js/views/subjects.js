@@ -1,45 +1,80 @@
-// Port of Sources/Views/Subjects/SubjectsView.swift
+// Subjects, sectioned the way the year is actually taught: by semester, then by
+// block, newest first. Courses with nothing in the calendar sit at the bottom.
 
 import { emptyState } from '../components.js';
 import { el, escapeHtml } from '../ui.js';
 import { icon } from '../icons.js';
 import { subjectColor } from '../domain.js';
+import { detectBlocks, formatBlockRange, currentBlock } from '../blocks.js';
+import { dateKey } from '../schedule.js';
 
-/// Distinct classes (by matchKey), not raw schedule entry rows — a calendar that
-/// publishes each week's occurrence as its own event would otherwise inflate
-/// this into a much larger, meaningless number.
 export function distinctClassCount(store, subjectId) {
-  const keys = new Set(
-    store.all('scheduleEntries')
-      .filter((entry) => entry.subjectId === subjectId)
-      .map((entry) => entry.matchKey),
-  );
-  return keys.size;
+  return store.all('classes').filter((klass) => klass.subjectId === subjectId).length;
+}
+
+function subjectRow(store, subject) {
+  const classes = distinctClassCount(store, subject.id);
+  const assignments = store.all('assignments').filter((a) => a.subjectId === subject.id && !a.isCompleted).length;
+  const links = store.all('links').filter((l) => l.subjectId === subject.id).length;
+  const parts = [`${classes} ${classes === 1 ? 'class' : 'classes'}`];
+  if (assignments > 0) parts.push(`${assignments} open`);
+  if (links > 0) parts.push(`${links} ${links === 1 ? 'link' : 'links'}`);
+
+  return `
+    <button type="button" class="subject-row" data-subject-id="${escapeHtml(subject.id)}">
+      <span class="subject-dot large" style="background:${subjectColor(subject.colorHex)}"></span>
+      <span class="subject-row-main">
+        <span class="row-title">${escapeHtml(subject.name)}</span>
+        <span class="row-details"><span class="row-meta">${escapeHtml(parts.join(' · '))}</span></span>
+      </span>
+      ${icon('chevron.right', { className: 'chevron' })}
+    </button>`;
 }
 
 export function render(context) {
   const { store } = context;
   const subjects = store.all('subjects').sort((a, b) => a.name.localeCompare(b.name));
+  const blocks = detectBlocks(store);
+  const active = currentBlock(blocks, dateKey(new Date()));
 
-  const rows = subjects.map((subject) => {
-    const classes = distinctClassCount(store, subject.id);
-    const assignments = store.all('assignments').filter((a) => a.subjectId === subject.id).length;
-    const links = store.all('links').filter((l) => l.subjectId === subject.id).length;
-    const linkChip = links > 0 ? ` · ${links} ${links === 1 ? 'link' : 'links'}` : '';
-    return `
-      <button type="button" class="subject-row" data-subject-id="${escapeHtml(subject.id)}">
-        <span class="subject-dot large" style="background:${subjectColor(subject.colorHex)}"></span>
-        <span class="subject-row-main">
-          <span class="row-title">${escapeHtml(subject.name)}</span>
-          <span class="row-details"><span class="row-meta">${classes} ${classes === 1 ? 'class' : 'classes'} · ${assignments} ${assignments === 1 ? 'assignment' : 'assignments'}${linkChip}</span></span>
-        </span>
-        ${icon('chevron.right', { className: 'chevron' })}
-      </button>`;
-  }).join('');
+  const claimed = new Set();
+  const sections = [];
+
+  // Newest block first: the one you're in should be at the top of the page.
+  for (const block of [...blocks].reverse()) {
+    const members = block.subjectIds
+      .map((id) => store.get('subjects', id))
+      .filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (members.length === 0) continue;
+    for (const member of members) claimed.add(member.id);
+
+    const isActive = active && block.label === active.label && block.start === active.start;
+    sections.push(`
+      <section class="group">
+        <h2 class="group-header block-header">
+          <span>${escapeHtml(block.label)}${isActive ? '<span class="now-chip">now</span>' : ''}</span>
+          <span class="block-meta">${escapeHtml(block.semesterLabel)} · ${escapeHtml(formatBlockRange(block))}</span>
+        </h2>
+        <div class="list-card">${members.map((subject) => subjectRow(store, subject)).join('')}</div>
+      </section>`);
+  }
+
+  const unscheduled = subjects.filter((subject) => !claimed.has(subject.id));
+  if (unscheduled.length > 0) {
+    sections.push(`
+      <section class="group">
+        <h2 class="group-header block-header">
+          <span>Not in the timetable</span>
+          <span class="block-meta">${blocks.length === 0 ? 'import a calendar to sort these into blocks' : 'no classes imported for these'}</span>
+        </h2>
+        <div class="list-card">${unscheduled.map((subject) => subjectRow(store, subject)).join('')}</div>
+      </section>`);
+  }
 
   const body = subjects.length === 0
-    ? emptyState('books.vertical', 'No subjects yet. Add one to get started.')
-    : `<div class="list-card">${rows}</div>`;
+    ? emptyState('books.vertical', 'No subjects yet. Import your calendar or add one.')
+    : sections.join('');
 
   return el(`
     <div class="view view-subjects">

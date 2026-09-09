@@ -3,13 +3,13 @@
 Your timetable, assignments and class notes — on your Mac, your MacBook and your iPad, kept in step,
 **without installing Xcode and without paying Apple anything**.
 
-- **Today** — today's classes and upcoming assignments at a glance
-- **Schedule** — weekly timetable, colour-coded by subject, tagged Lecture/Tutorial/Practical/Exam/Other
+- **Today** — today and the next working day, with anything due flagged on the class it's due by
+- **Schedule** — a real week view with a time axis, built from the dates your calendar actually gives
 - **Assignments** — grouped into overdue/upcoming/completed, with priority and due dates
 - **Subjects** — your courses, each with a colour and optional links to related notebooks or folders
 - **Settings** — paste an iCal (`.ics`) URL and the schedule builds itself: each class's type and subject
   are detected from its title, no manual classification required
-- **Class notes** — open any class to keep a running, checkable list of follow-ups tied to that class
+- **Class notes** — open any class to note what to check before that course's next session
 - **Sync** — every device stays in step through one private gist on your own GitHub account
 
 It installs like a real app: its own icon, its own window, no browser chrome, and it works offline.
@@ -32,10 +32,10 @@ That last row is the one that settles it. A free Apple ID cannot create a CloudK
 `cloudKitDatabase: .automatic` configuration in `Sources/App/StudyOrganiserApp.swift` quietly falls back
 to its local-only configuration — the "iCloud sync" in the original app was never actually going to sync.
 
-So the app was rebuilt as a web app. Everything else is a faithful port: the ICS parser, the type and
-subject guessing (English and German keywords, course-code stripping), the import rules, the weekly
-collapsing of one-off events — all of it behaves the way the Swift version did, and there are tests
-pinning that down.
+So the app was rebuilt as a web app, carrying over the ICS parser, the type and subject guessing (English
+and German keywords, course-code stripping) and the import rules. It has since moved past the Swift
+version in one important way: the timetable is stored as the real dates each class runs, rather than a
+weekly pattern repeated forever. See [How the timetable is understood](#how-the-timetable-is-understood).
 
 ---
 
@@ -136,8 +136,8 @@ other app that can publish an `.ics` link works the same way.
    needed. `"WBPH001-10 Lecture: Linear Algebra"` becomes subject *Linear Algebra*, type *Lecture*.
 2. If something is misclassified, **Settings → Class Mappings** → tap it. The fix applies to every class
    that rule already created and sticks for future imports.
-3. Tap any class in **Today** or **Schedule** to add follow-up notes — they reappear next time that class
-   comes around.
+3. Tap any class in **Today** or **Schedule** to note what to check before that course's next session.
+   Those appear in **Assignments** under *Check Before Next Class* and put a flag on the class itself.
 4. In **Subjects**, tap a subject to rename it, change its colour, or attach links.
 5. Add assignments from the **Assignments** tab; filter by subject with the control in the header.
 
@@ -179,7 +179,7 @@ No dependencies, no build step, no bundler. The files in `web/` are served exact
 
 ```bash
 node scripts/serve.mjs          # http://localhost:8080
-cd web && npm test              # 29 logic tests, Node's built-in runner
+cd web && npm test              # 70 logic tests, Node's built-in runner
 python3 scripts/make-icons.py   # regenerate the app icons (pure stdlib)
 ```
 
@@ -188,8 +188,10 @@ web/
   index.html  styles.css  manifest.webmanifest  sw.js
   js/
     domain.js      class types, subject-name guessing, palette   (Models/*.swift)
-    ics.js         iCalendar parser                              (Services/ICSParser.swift)
-    importer.js    auto-classify and upsert schedule entries     (Services/ICSImporter.swift)
+    ics.js         iCalendar parser and occurrence expansion     (Services/ICSParser.swift)
+    importer.js    auto-classify into classes + dated sessions   (Services/ICSImporter.swift)
+    blocks.js      infers blocks and semesters from the calendar
+    schedule.js    date queries: next class, what's due when
     store.js       records, soft deletes, cascade rules          (the SwiftData schema)
     sync.js        gist pull/merge/push                          (replaces CloudKit)
     calendar.js    mirror / direct / proxy / file download paths
@@ -200,14 +202,31 @@ web/
 
 The tests run in CI before every deploy, so a broken parser can't reach your devices.
 
+## How the timetable is understood
+
+The importer stores the **actual dates** each class runs, not a weekly pattern. `RRULE` is expanded with
+its `UNTIL`, `COUNT`, `INTERVAL` and `EXDATE`, so a course appears only in the weeks it is really taught,
+and disappears once it ends. Everything else is built on that:
+
+- **Blocks are detected, not configured.** Courses that start and finish together are grouped into a
+  block, and blocks are labelled by semester (`Block 1a`, `Block 1b`, …). Check what it worked out under
+  **Settings → Detected Blocks**.
+- **Subject pickers show only the current block**, so last semester's modules stay out of the way.
+  Whatever is already selected on an item always stays in its list.
+- **Assignments can be due "by next class"**, which resolves to that course's next session — lecture or
+  tutorial, whichever comes first — and rolls forward on its own.
+- **Class notes are per course.** Open a class in Today or Schedule to note what to check before its next
+  session; those appear in Assignments under *Check Before Next Class*, and flag the class itself.
+
 ## Known limitations
 
-- Weekly recurrence (`RRULE:FREQ=WEEKLY`, including `BYDAY`) is expanded; one-off events import as single
-  dated entries. Daily and monthly recurrence aren't specially handled — uncommon for class timetables.
-- A calendar that publishes each week's class as its own event still imports fine: the weekly view
-  collapses them to one representative row per class.
+- Daily recurrence is expanded; monthly and yearly rules keep only their first occurrence, which is
+  uncommon enough in a class timetable to leave for a manual fix.
+- A rule with no `UNTIL` or `COUNT` is expanded a year ahead. It has no real end date, so block detection
+  can only guess where it stops.
 - Calendars using Windows time-zone names (`W. Europe Standard Time`) fall back to your local zone, the
   same way the Swift version did.
 - Refreshing the calendar is manual (or daily, with the mirror) rather than continuous.
-- Subject auto-detection strips recognised type keywords and leading course codes; messy titles may still
-  need a rename in **Subjects**.
+- Subject names are guessed from the event title: a leading `Lecture:`/`Tutorial:` label is dropped and
+  the rest kept as-is, so `Practical: Physics: Lab Skills` becomes *Physics: Lab Skills*. Odd titles can
+  still be renamed in **Subjects**.
