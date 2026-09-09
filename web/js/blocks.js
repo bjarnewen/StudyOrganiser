@@ -10,15 +10,20 @@
 
 import { dateKey, dateFromKey } from './ics.js';
 
-/// Two subjects belong to the same block when they overlap by at least this
-/// much of the shorter of the two periods. Well below 1 so a course that starts
-/// a week late or ends a week early still lands in its block, but high enough
-/// that adjacent blocks don't merge just because one exam sits in the next.
-const OVERLAP_THRESHOLD = 0.5;
+/// A course starting more than this long after the current cohort began marks
+/// the start of a new block. Comfortably longer than the few days of jitter
+/// between courses in one block, and comfortably shorter than a block itself.
+const NEW_BLOCK_GAP_DAYS = 28;
 
 function daysBetween(fromKey, toKey) {
   const ms = dateFromKey(toKey).getTime() - dateFromKey(fromKey).getTime();
   return Math.round(ms / 86400000);
+}
+
+function shiftKey(key, days) {
+  const date = dateFromKey(key);
+  date.setDate(date.getDate() + days);
+  return dateKey(date);
 }
 
 /// The span of dates each subject is actually taught over.
@@ -38,15 +43,6 @@ export function subjectPeriods(store) {
   return [...periods.values()];
 }
 
-function overlapFraction(a, b) {
-  const start = a.start > b.start ? a.start : b.start;
-  const end = a.end < b.end ? a.end : b.end;
-  const overlap = daysBetween(start, end) + 1;
-  if (overlap <= 0) return 0;
-  const shorter = Math.min(daysBetween(a.start, a.end), daysBetween(b.start, b.end)) + 1;
-  return shorter <= 0 ? 0 : overlap / shorter;
-}
-
 /// An academic year runs from roughly August, so anything before then belongs to
 /// the year that started the previous calendar year.
 function academicYear(key) {
@@ -61,35 +57,44 @@ function semesterNumber(key) {
   return month >= 7 || month <= 0 ? 1 : 2;
 }
 
-/// Groups subjects into blocks by overlapping teaching periods, newest last.
+/// Works out the teaching blocks from the calendar.
+///
+/// A block is a stretch of *time*, not a set of courses — a course can run
+/// across several of them. Mechanics and Relativity spanning a whole semester
+/// while Calculus 1 runs in 1a and something else in 1b is the normal case, so
+/// grouping courses that overlap would weld the whole semester into one block.
+///
+/// Instead the boundaries come from when cohorts of courses *begin*: several
+/// courses starting together marks a new block, and every course whose teaching
+/// period touches that stretch belongs to it — a semester-long course belongs to
+/// each block it runs through.
 export function detectBlocks(store) {
   const periods = subjectPeriods(store).sort((a, b) => a.start.localeCompare(b.start));
   if (periods.length === 0) return [];
 
-  // Union-find over "these two courses run at the same time".
-  const parent = periods.map((_, index) => index);
-  const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
-  const union = (i, j) => { parent[find(i)] = find(j); };
-
-  for (let i = 0; i < periods.length; i += 1) {
-    for (let j = i + 1; j < periods.length; j += 1) {
-      if (overlapFraction(periods[i], periods[j]) >= OVERLAP_THRESHOLD) union(i, j);
+  const boundaries = [];
+  for (const period of periods) {
+    const current = boundaries[boundaries.length - 1];
+    if (!current || daysBetween(current, period.start) > NEW_BLOCK_GAP_DAYS) {
+      boundaries.push(period.start);
     }
   }
 
-  const groups = new Map();
-  periods.forEach((period, index) => {
-    const root = find(index);
-    if (!groups.has(root)) groups.set(root, []);
-    groups.get(root).push(period);
-  });
+  const lastEnd = periods.reduce((max, period) => (period.end > max ? period.end : max), periods[0].end);
 
-  const blocks = [...groups.values()].map((members) => ({
-    start: members.reduce((min, m) => (m.start < min ? m.start : min), members[0].start),
-    end: members.reduce((max, m) => (m.end > max ? m.end : max), members[0].end),
-    subjectIds: members.map((m) => m.subjectId),
-    periods: members,
-  })).sort((a, b) => a.start.localeCompare(b.start));
+  const blocks = boundaries.map((start, index) => {
+    const next = boundaries[index + 1];
+    // A block owns the calendar up to the day the next one opens, so the gap
+    // between blocks still resolves to the one you have just been in.
+    const end = next ? shiftKey(next, -1) : lastEnd;
+    const members = periods.filter((period) => period.start <= end && period.end >= start);
+    return {
+      start,
+      end,
+      subjectIds: members.map((m) => m.subjectId),
+      periods: members,
+    };
+  });
 
   // Label them the way a timetable does: semester 1 holds blocks 1a, 1b, ...
   const counters = new Map();

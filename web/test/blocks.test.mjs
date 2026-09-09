@@ -31,6 +31,84 @@ function storeWith(subjects) {
 const BLOCK_1A = ['2025-09-08', '2025-09-15', '2025-10-06', '2025-11-03'];
 const BLOCK_1B = ['2025-11-17', '2025-12-01', '2026-01-12', '2026-01-19'];
 
+/// Weekly dates from `from` to `to`, inclusive.
+function weekly(fromISO, toISO, weekday = 1) {
+  const dates = [];
+  const cursor = new Date(fromISO);
+  while (cursor.getDay() !== weekday) cursor.setDate(cursor.getDate() + 1);
+  const end = new Date(toISO);
+  while (cursor <= end) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setDate(cursor.getDate() + 7);
+  }
+  return dates;
+}
+
+// The real shape of a Groningen-style year: a course running the whole semester
+// alongside short courses that define the blocks underneath it.
+function semesterStore() {
+  return storeWith({
+    'Mechanics and Relativity': { dates: weekly('2025-09-01', '2026-01-30') },
+    'Calculus 1': { dates: weekly('2025-09-01', '2025-11-07') },
+    'Physics: Lab Skills': { dates: weekly('2025-09-02', '2025-11-07', 2) },
+    'Linear Algebra': { dates: weekly('2025-11-17', '2026-01-30') },
+    'Waves and Optics': { dates: weekly('2025-11-18', '2026-01-30', 2) },
+  });
+}
+
+test('a semester-long course does not weld its two blocks together', () => {
+  const { store } = semesterStore();
+  const blocks = detectBlocks(store);
+  assert.equal(blocks.length, 2, 'Mechanics spans both blocks but must not merge them');
+  assert.deepEqual(blocks.map((b) => b.label), ['Block 1a', 'Block 1b']);
+});
+
+test('a semester-long course belongs to every block it runs through', () => {
+  const { store, ids } = semesterStore();
+  const [first, second] = detectBlocks(store);
+  const names = (block) => block.subjectIds.map((id) => Object.keys(ids).find((n) => ids[n] === id)).sort();
+
+  assert.deepEqual(names(first), ['Calculus 1', 'Mechanics and Relativity', 'Physics: Lab Skills']);
+  assert.deepEqual(names(second), ['Linear Algebra', 'Mechanics and Relativity', 'Waves and Optics']);
+});
+
+test('during block 1a, only 1a courses are offered', () => {
+  const { store, ids } = semesterStore();
+  const taught = currentlyTaughtSubjectIds(store, '2025-10-01');
+  assert.equal(taught.has(ids['Calculus 1']), true);
+  assert.equal(taught.has(ids['Mechanics and Relativity']), true, 'runs all semester');
+  assert.equal(taught.has(ids['Linear Algebra']), false, 'has not started yet');
+  assert.equal(taught.has(ids['Waves and Optics']), false);
+  assert.equal(taught.size, 3);
+});
+
+test('during block 1b, the 1a courses have dropped out', () => {
+  const { store, ids } = semesterStore();
+  const taught = currentlyTaughtSubjectIds(store, '2025-12-05');
+  assert.equal(taught.has(ids['Linear Algebra']), true);
+  assert.equal(taught.has(ids['Mechanics and Relativity']), true, 'still running');
+  assert.equal(taught.has(ids['Calculus 1']), false, 'finished in 1a');
+  assert.equal(taught.size, 3);
+});
+
+test('the gap between blocks still resolves to the block just finished', () => {
+  const { store, ids } = semesterStore();
+  // 12 November: 1a's classes are over, 1b has not begun.
+  const taught = currentlyTaughtSubjectIds(store, '2025-11-12');
+  assert.equal(taught.has(ids['Calculus 1']), true);
+  assert.equal(taught.has(ids['Linear Algebra']), false);
+});
+
+test('blocks are contiguous: one ends the day the next begins', () => {
+  const { store } = semesterStore();
+  const [first, second] = detectBlocks(store);
+  assert.equal(first.start, '2025-09-01');
+  assert.equal(first.end, '2025-11-16', 'runs right up to 1b');
+  assert.equal(second.start, '2025-11-17');
+  const lastClass = store.all('occurrences').map((o) => o.date).sort().at(-1);
+  assert.equal(second.end, lastClass, 'the last block ends with its last class');
+});
+
 test('courses taught over the same period land in one block', () => {
   const { store } = storeWith({
     'Calculus 1': { dates: BLOCK_1A },
@@ -78,13 +156,13 @@ test('the current block is the one today falls inside', () => {
   assert.deepEqual(block.subjectIds, [ids['Calculus 1']]);
 });
 
-test('between blocks, the next one starting is treated as current', () => {
+test('before term starts, the first block is the current one', () => {
   const { store, ids } = storeWith({
     'Calculus 1': { dates: BLOCK_1A },
     'Linear Algebra': { dates: BLOCK_1B },
   });
-  const block = currentBlock(detectBlocks(store), '2025-11-10');
-  assert.deepEqual(block.subjectIds, [ids['Linear Algebra']]);
+  const block = currentBlock(detectBlocks(store), '2025-08-01');
+  assert.deepEqual(block.subjectIds, [ids['Calculus 1']]);
 });
 
 test('only the current block’s courses are offered in pickers', () => {
