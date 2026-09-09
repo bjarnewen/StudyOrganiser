@@ -4,3 +4,7 @@ xcuserdata/
 DerivedData/
 build/
 *.ipa
+
+# Published by the Deploy web app workflow at build time; never committed.
+web/calendar.ics
+node_modules/
