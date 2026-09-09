@@ -40,8 +40,16 @@ export function render(context) {
   const claimed = new Set();
   const sections = [];
 
-  // Newest block first: the one you're in should be at the top of the page.
-  for (const block of [...blocks].reverse()) {
+  // The block you're in leads, then what's coming, then what's finished — so
+  // the top of the page is always the term you're actually in.
+  const isActive = (block) => active && block.start === active.start && block.label === active.label;
+  const ordered = [
+    ...blocks.filter(isActive),
+    ...blocks.filter((b) => !isActive(b) && b.start > (active?.start ?? '')).sort((a, b) => a.start.localeCompare(b.start)),
+    ...blocks.filter((b) => !isActive(b) && b.start <= (active?.start ?? '')).sort((a, b) => b.start.localeCompare(a.start)),
+  ];
+
+  for (const block of ordered) {
     const members = block.subjectIds
       .map((id) => store.get('subjects', id))
       .filter(Boolean)
@@ -49,11 +57,10 @@ export function render(context) {
     if (members.length === 0) continue;
     for (const member of members) claimed.add(member.id);
 
-    const isActive = active && block.label === active.label && block.start === active.start;
     sections.push(`
       <section class="group">
         <h2 class="group-header block-header">
-          <span>${escapeHtml(block.label)}${isActive ? '<span class="now-chip">now</span>' : ''}</span>
+          <span>${escapeHtml(block.label)}${isActive(block) ? '<span class="now-chip">now</span>' : ''}</span>
           <span class="block-meta">${escapeHtml(block.semesterLabel)} · ${escapeHtml(formatBlockRange(block))}</span>
         </h2>
         <div class="list-card">${members.map((subject) => subjectRow(store, subject)).join('')}</div>
