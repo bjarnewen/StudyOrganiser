@@ -1,8 +1,9 @@
-// Offline support. The app is a handful of static files, so the whole shell is
-// precached on install and served stale-while-revalidate afterwards: pages open
-// instantly and with no network at all, and a new deploy lands on the next launch.
+// Offline support. The whole shell is precached on install so the app opens
+// with no network at all, and every request goes to the network first with the
+// cache as a fallback, so an update lands on the very next launch and every
+// module is guaranteed to come from the same version.
 
-const CACHE = 'study-organiser-v2';
+const CACHE = 'study-organiser-v3';
 
 const SHELL = [
   './',
@@ -62,32 +63,43 @@ self.addEventListener('fetch', (event) => {
   // The calendar mirror must always be fresh; it changes on GitHub's schedule.
   if (url.pathname.endsWith('/calendar.ics')) return;
 
-  // A navigation should still resolve to the shell when offline.
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put('./index.html', copy));
-          return response;
-        })
-        .catch(() => caches.match('./index.html').then((cached) => cached || caches.match('./'))),
-    );
-    return;
-  }
-
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request)
-        .then((response) => {
-          if (response && response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put(request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    }),
-  );
+  // Network first, cache as the fallback.
+  //
+  // This app is a set of ES modules that import each other, so a half-updated
+  // cache is worse than no cache: a new index.html paired with an old module
+  // (or vice versa) breaks the app outright. Serving cached copies first also
+  // meant an update needed two launches to appear. Going to the network first
+  // keeps every file on the same version, and the timeout means a slow or dead
+  // connection still falls back to the cached copy quickly.
+  event.respondWith(networkFirst(request));
 });
+
+const NETWORK_TIMEOUT_MS = 3500;
+
+async function networkFirst(request) {
+  const cache = await caches.open(CACHE);
+  try {
+    const response = await withTimeout(fetch(request), NETWORK_TIMEOUT_MS);
+    if (response && response.ok) cache.put(request, response.clone());
+    return response;
+  } catch {
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    // A navigation that never made it to the network still has to render.
+    if (request.mode === 'navigate') {
+      const shell = await cache.match('./index.html') || await cache.match('./');
+      if (shell) return shell;
+    }
+    return Response.error();
+  }
+}
+
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('network timeout')), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}

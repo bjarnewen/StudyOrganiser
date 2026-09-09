@@ -1019,3 +1019,42 @@ textarea.field-input { resize: vertical; min-height: 84px; }
 .row-meta.muted { color: var(--text-tertiary); }
 
 .due-flag { color: var(--red); width: 18px; height: 18px; }
+
+/* ------------------------------------------------------------------ banner */
+
+.banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 12px;
+  max-width: 780px;
+  margin: 20px auto -4px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  box-shadow: var(--shadow), inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.banner-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--accent);
+  margin-top: 1px;
+}
+
+.banner-text { display: flex; flex-direction: column; gap: 4px; }
+.banner-text strong { font-size: 15px; }
+.banner-text span { font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
+
+.banner-actions {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.banner-actions .secondary-button { text-decoration: none; }
+
+@media (max-width: 899px) {
+  .banner { margin: max(16px, env(safe-area-inset-top)) 16px -8px; }
+}

@@ -37,8 +37,10 @@ export function newId() {
 /// `persistence` is { load(): object|null, save(data): void } so the store can be
 /// driven by localStorage in the browser and by memory in tests.
 export function createStore(persistence) {
-  let data = normalizeData(persistence.load());
+  const loaded = persistence.load();
+  let data = normalizeData(loaded);
   const listeners = new Set();
+  const migratedOnLoad = Boolean(loaded) && (loaded.schemaVersion || 1) !== SCHEMA_VERSION;
 
   function normalizeData(raw) {
     const base = emptyData();
@@ -201,6 +203,8 @@ export function createStore(persistence) {
       }
     }
   }
+
+  if (migratedOnLoad) persistence.save(data);
 
   return store;
 }

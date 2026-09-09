@@ -67,8 +67,55 @@ const context = { store, state, get syncConfig() { return syncConfig; } };
 // ---------------------------------------------------------------- rendering
 
 const content = document.getElementById('content');
+const banner = document.getElementById('banner');
 const sidebarNav = document.getElementById('sidebar-nav');
 const tabBar = document.getElementById('tab-bar');
+
+/// After the upgrade to dated classes, an install carried over from the old
+/// version has courses but no dates — the old format never stored them, so they
+/// can only come from the calendar. Every dated view is empty until then, which
+/// makes the app look broken, so say so up front with the fix attached rather
+/// than leaving it to be discovered in Settings.
+function needsReimport() {
+  return store.all('classes').length > 0 && store.all('occurrences').length === 0;
+}
+
+function renderBanner() {
+  if (!needsReimport()) {
+    banner.replaceChildren();
+    return;
+  }
+  banner.replaceChildren(el(`
+    <div class="banner" role="status">
+      ${icon('exclamationmark.triangle', { className: 'banner-icon' })}
+      <div class="banner-text">
+        <strong>Your timetable needs importing once more.</strong>
+        <span>This update stores the real dates each class runs, so it can show a proper week and tell which courses are running. The old version only kept a weekday, so the dates have to come from your calendar again. Your subjects, assignments and notes are all still here.</span>
+      </div>
+      <div class="banner-actions">
+        <button type="button" class="primary-button" data-banner-import>${icon('square.and.arrow.down')}<span>Import .ics file</span></button>
+        <a class="secondary-button" href="#/settings">Open Settings</a>
+      </div>
+      <input type="file" accept=".ics,text/calendar" data-banner-file hidden />
+    </div>`));
+}
+
+banner.addEventListener('click', (event) => {
+  if (event.target.closest('[data-banner-import]')) {
+    banner.querySelector('[data-banner-file]')?.click();
+  }
+});
+
+banner.addEventListener('change', async (event) => {
+  const input = event.target.closest('[data-banner-file]');
+  if (!input || !input.files?.[0]) return;
+  try {
+    await importCalendarText(await readFileAsText(input.files[0]), input.files[0].name);
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+  input.value = '';
+});
 
 function renderNav() {
   sidebarNav.innerHTML = SECTIONS.map(({ id, label }) => `
@@ -87,6 +134,7 @@ let renderQueued = false;
 function render() {
   renderQueued = false;
   renderNav();
+  renderBanner();
   const view = VIEWS[state.section] || VIEWS.today;
   const scroller = content.parentElement;
   const previousScroll = scroller.scrollTop;
@@ -803,7 +851,22 @@ mirrorAvailable().then((available) => {
 if (syncConnected()) runSync();
 
 if ('serviceWorker' in navigator) {
+  // A launch that starts under the previous service worker gets the previous
+  // version's files, even though a newer one is installing behind it. Once that
+  // new worker takes over, reload so the page isn't left running a mix of old
+  // and new modules. Guarded twice: only when a worker was already in charge
+  // (so a first install doesn't reload), and only once per launch.
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    location.reload();
+  });
+
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => { /* offline support is optional */ });
+    navigator.serviceWorker.register('./sw.js')
+      .then((registration) => registration.update().catch(() => {}))
+      .catch(() => { /* offline support is optional */ });
   });
 }
