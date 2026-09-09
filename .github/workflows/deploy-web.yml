@@ -1,0 +1,86 @@
+name: Deploy web app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/deploy-web.yml'
+  # Refreshes the optional calendar mirror once a day.
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; queue them instead of cancelling a live one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run logic tests
+        working-directory: web
+        run: node --test test/*.test.mjs
+        env:
+          TZ: Europe/Berlin
+
+      # Optional: publishes a copy of the calendar next to the app so the browser
+      # can read it same-origin. Only runs when an ICS_URL secret exists.
+      #
+      # NOTE: on a public repository this makes the timetable's contents public
+      # too. The secret URL itself is not exposed, but the events are. Leave the
+      # secret unset to keep the calendar off the site entirely — importing the
+      # .ics by hand from Settings works without it.
+      - name: Mirror the calendar
+        env:
+          ICS_URL: ${{ secrets.ICS_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ICS_URL:-}" ]; then
+            echo "No ICS_URL secret set - skipping the mirror."
+            exit 0
+          fi
+          url="${ICS_URL/#webcal:\/\//https://}"
+          if ! curl -fsSL --retry 3 --max-time 60 "$url" -o web/calendar.ics; then
+            echo "::warning::Could not download the calendar; deploying without a mirror."
+            rm -f web/calendar.ics
+            exit 0
+          fi
+          if ! grep -q 'BEGIN:VCALENDAR' web/calendar.ics; then
+            echo "::warning::That URL did not return an iCalendar file; deploying without a mirror."
+            rm -f web/calendar.ics
+            exit 0
+          fi
+          echo "Mirrored $(grep -c 'BEGIN:VEVENT' web/calendar.ics) events."
+
+      - uses: actions/configure-pages@v5
+        with:
+          # Turns Pages on the first time this runs, so there's no manual step.
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

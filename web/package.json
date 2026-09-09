@@ -1,0 +1,10 @@
+{
+  "name": "study-organiser-web",
+  "private": true,
+  "type": "module",
+  "description": "Study Organiser as an installable web app. No dependencies and no build step: the files in this folder are served as-is.",
+  "scripts": {
+    "test": "TZ=Europe/Berlin node --test test/*.test.mjs",
+    "serve": "node ../scripts/serve.mjs"
+  }
+}

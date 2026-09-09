@@ -3,6 +3,15 @@ name: Build iOS IPA
 on:
   push:
     branches: [main]
+    # The web app lives alongside the Swift project; don't spend a macOS runner
+    # on commits that only touch it.
+    paths:
+      - 'Sources/**'
+      - 'Resources/**'
+      - 'Entitlements/**'
+      - 'StudyOrganiser.xcodeproj/**'
+      - 'project.yml'
+      - '.github/workflows/build-ipa.yml'
   workflow_dispatch:
 
 jobs:
