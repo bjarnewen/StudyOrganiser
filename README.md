@@ -41,13 +41,16 @@ pinning that down.
 
 ## 1. Put it online (once, ~2 minutes)
 
-Push this branch to `main`. The **Deploy web app** workflow turns GitHub Pages on by itself and publishes
-the app to:
+**Turn Pages on first:** **Settings → Pages → Build and deployment → Source: GitHub Actions**. This has to
+be done by hand once — creating a Pages site needs repo-admin rights, which a workflow's token never has,
+so no workflow can do it for you.
+
+Then run **Actions → Deploy web app → Run workflow** (or push any change under `web/`). It publishes to:
 
 **`https://bjarnewen.github.io/StudyOrganiser/`**
 
-Check **Actions → Deploy web app** for the run. If it fails at the *Configure Pages* step, enable Pages by
-hand once — **Settings → Pages → Source: GitHub Actions** — and re-run it.
+After that it redeploys on every push that touches `web/`, and once a day to refresh the optional
+calendar mirror.
 
 > The published site contains only the app's code, which is already public in this repository.
 > **None of your data goes onto the site.** It lives in your browser and in your own private gist.

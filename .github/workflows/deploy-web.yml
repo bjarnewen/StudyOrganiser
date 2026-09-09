@@ -66,11 +66,11 @@ jobs:
           fi
           echo "Mirrored $(grep -c 'BEGIN:VEVENT' web/calendar.ics) events."
 
-      - uses: actions/configure-pages@v5
-        with:
-          # Turns Pages on the first time this runs, so there's no manual step.
-          enablement: true
-
+      # No configure-pages step: its only job is to hand a base path to static
+      # site generators, and every path in this app is relative so it works on
+      # a project subpath as-is. Its `enablement` option can't help either --
+      # creating a Pages site needs admin rights the workflow token never has.
+      # Turn Pages on once by hand: Settings -> Pages -> Source: GitHub Actions.
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web
