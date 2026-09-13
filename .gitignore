@@ -8,3 +8,4 @@ build/
 # Published by the Deploy web app workflow at build time; never committed.
 web/calendar.ics
 node_modules/
+web/widgets

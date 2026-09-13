@@ -37,6 +37,21 @@ jobs:
         env:
           TZ: Europe/Berlin
 
+      # The widgets inline shared logic at build time, so a stale committed copy
+      # would silently disagree with the app. Rebuild and fail if it differs.
+      - name: Check the widgets are built from their source
+        run: |
+          node scripts/build-widgets.mjs
+          if ! git diff --quiet -- widgets/; then
+            echo "::error::widgets/ is out of date. Run: node scripts/build-widgets.mjs"
+            git diff --stat -- widgets/
+            exit 1
+          fi
+
+      # Published next to the app so they can be fetched straight onto an iPad.
+      - name: Publish the widgets with the site
+        run: cp -r widgets web/widgets
+
       # Optional: publishes a copy of the calendar next to the app so the browser
       # can read it same-origin. Only runs when an ICS_URL secret exists.
       #
