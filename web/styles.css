@@ -1058,3 +1058,21 @@ textarea.field-input { resize: vertical; min-height: 84px; }
 @media (max-width: 899px) {
   .banner { margin: max(16px, env(safe-area-inset-top)) 16px -8px; }
 }
+
+.copy-value {
+  max-width: 100%;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--text);
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copy-value:hover { background: var(--fill-strong); }

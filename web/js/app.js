@@ -774,6 +774,16 @@ content.addEventListener('click', async (event) => {
   if (target.closest('[data-sync-disconnect]')) return disconnectSync();
   if (target.closest('[data-export-data]')) return exportBackup();
 
+  const copyButton = target.closest('[data-copy]');
+  if (copyButton) {
+    const value = copyButton.dataset.copy;
+    if (!value) return undefined;
+    navigator.clipboard?.writeText(value)
+      .then(() => toast('Copied'))
+      .catch(() => toast('Could not copy — select it by hand', 'error'));
+    return undefined;
+  }
+
   if (target.closest('[data-reset-data]')) {
     const confirmed = await confirmSheet({
       title: 'Erase local data?',

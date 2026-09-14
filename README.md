@@ -235,24 +235,30 @@ so it still renders with no connection.
 
 ### Mac — Übersicht
 
-1. Install **[Übersicht](https://tracesof.net/uebersicht/)** (free).
-2. Save your credentials once, so they stay out of the widget file:
+1. Install **[Übersicht](https://tracesof.net/uebersicht/)** (free) and launch it once.
+2. In the app, go to **Settings → Sync Across Devices** and copy the **Gist ID** shown there.
+3. In Terminal, paste this. It asks for your token without echoing it, and never puts either value
+   in your shell history:
 
    ```bash
    mkdir -p ~/.config/study-organiser
-   cat > ~/.config/study-organiser/widget.json <<'JSON'
-   { "token": "ghp_your_gist_scoped_token" }
-   JSON
-   chmod 600 ~/.config/study-organiser/widget.json
+   printf 'GitHub token (hidden): '; stty -echo; read -r T; stty echo; printf '\n'
+   printf '%s' "$T" > ~/.config/study-organiser/token
+   printf 'Gist ID: '; read -r G
+   printf '%s' "$G" > ~/.config/study-organiser/gist-id
+   chmod 600 ~/.config/study-organiser/*
+   curl -fsSL https://bjarnewen.github.io/StudyOrganiser/widgets/study-organiser.jsx \
+     -o "$HOME/Library/Application Support/Übersicht/widgets/study-organiser.jsx"
    ```
 
-   The gist is found automatically; add `"gistId": "…"` to pin a specific one.
-3. Download
-   [`study-organiser.jsx`](https://bjarnewen.github.io/StudyOrganiser/widgets/study-organiser.jsx)
-   into Übersicht's widgets folder (**Übersicht → Open Widgets Folder**).
+4. Übersicht picks the file up on its own. If not, use its menu-bar icon → **Refresh All Widgets**.
 
-It refreshes every five minutes. Position and size live in the `className` block at the bottom of the
-file — change `top`/`right`/`width` there.
+It refreshes every five minutes. Position and size are the `top`, `right` and `width` values in the
+`className` block near the bottom of the file — edit and save, and it reloads itself.
+
+The widget shells out only to `cat` and `curl`, both of which macOS always has. It deliberately avoids
+`/usr/bin/python3`, which on a clean Mac is a stub that prompts you to install the Command Line Tools;
+all the JSON parsing happens in the widget's own JavaScript instead.
 
 ## How the timetable is understood
 

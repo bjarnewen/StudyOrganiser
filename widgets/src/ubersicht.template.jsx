@@ -1,48 +1,38 @@
 // Study Organiser — macOS desktop widget (Übersicht)
 //
-// Reads the same private gist the app syncs to. Credentials live in
-// ~/.config/study-organiser/widget.json, not in this file, so the widget can be
-// shared or committed without leaking a token:
-//
-//   { "token": "ghp_…", "gistId": "…" }
-//
-// Setup is in the project README, under "Widgets".
+// Reads the same private gist the app syncs to, so it always shows what the
+// app shows. Setup is in the project README, under "Widgets".
 
 export const refreshFrequency = 300000; // five minutes
 
 // Reads the config, fetches the gist, and prints the data file. Any failure
 // prints an {"error": …} object so render() can say what went wrong instead of
 // showing an empty widget.
+// Credentials live in two plain files, not in here, so this widget can be
+// published without leaking anything:
+//
+//   ~/.config/study-organiser/token     the gist-scoped GitHub token
+//   ~/.config/study-organiser/gist-id   the gist id, shown in the app's Settings
+//
+// Deliberately does no JSON parsing: macOS has no jq, and /usr/bin/python3 is a
+// stub that nags you to install the Command Line Tools. So the shell only does
+// cat and curl — both always present — and render() below does the parsing.
 export const command = `
-  CONFIG="$HOME/.config/study-organiser/widget.json"
-  if [ ! -f "$CONFIG" ]; then
-    echo '{"error":"No config at ~/.config/study-organiser/widget.json"}'; exit 0
+  DIR="$HOME/.config/study-organiser"
+  TOKEN=$(cat "$DIR/token" 2>/dev/null | tr -d '[:space:]')
+  GIST=$(cat "$DIR/gist-id" 2>/dev/null | tr -d '[:space:]')
+  if [ -z "$TOKEN" ]; then
+    echo '{"soError":"No token at ~/.config/study-organiser/token"}'; exit 0
   fi
-  TOKEN=$(/usr/bin/python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("token",""))' "$CONFIG")
-  GIST=$(/usr/bin/python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("gistId",""))' "$CONFIG")
-  if [ -z "$TOKEN" ]; then echo '{"error":"No token in the config file"}'; exit 0; fi
   if [ -z "$GIST" ]; then
-    GIST=$(/usr/bin/curl -sS -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
-      "https://api.github.com/gists?per_page=100" \
-      | /usr/bin/python3 -c 'import json,sys
-gists = json.load(sys.stdin)
-match = next((g for g in gists if "study-organiser.json" in (g.get("files") or {})), None)
-print(match["id"] if match else "")')
+    echo '{"soError":"No gist id at ~/.config/study-organiser/gist-id"}'; exit 0
   fi
-  if [ -z "$GIST" ]; then echo '{"error":"No Study Organiser gist on this account"}'; exit 0; fi
-  /usr/bin/curl -sS -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
-    "https://api.github.com/gists/$GIST" \
-    | /usr/bin/python3 -c 'import json,sys
-try:
-    gist = json.load(sys.stdin)
-    files = gist.get("files") or {}
-    entry = files.get("study-organiser.json")
-    if not entry:
-        print(json.dumps({"error": "The sync gist has no data file yet"}))
-    else:
-        print(entry.get("content") or "{}")
-except Exception as error:
-    print(json.dumps({"error": str(error)}))'
+  curl -sS --max-time 20 \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    "https://api.github.com/gists/$GIST" 2>/dev/null \
+    || echo '{"soError":"Could not reach GitHub"}'
 `;
 
 //__AGENDA_CORE__
@@ -77,15 +67,30 @@ export const className = `
   .so-empty { font-size: 12px; color: rgba(235, 235, 245, 0.6); }
 `;
 
-export const render = ({ output }) => {
-  let doc = null;
-  let error = null;
+/// Unwraps the gist API response into the app's document.
+function readDocument(output) {
+  let payload;
   try {
-    doc = JSON.parse(output);
-    if (doc && doc.error) { error = doc.error; doc = null; }
-  } catch (parseError) {
-    error = 'Could not read the data from GitHub.';
+    payload = JSON.parse(output);
+  } catch {
+    return { doc: null, error: 'Could not read the response from GitHub.' };
   }
+  if (payload.soError) return { doc: null, error: payload.soError };
+  if (payload.message) return { doc: null, error: `GitHub: ${payload.message}` };
+
+  const file = payload.files && payload.files['study-organiser.json'];
+  if (!file) return { doc: null, error: 'That gist has no Study Organiser data yet.' };
+  if (file.truncated) return { doc: null, error: 'The synced data is too large to read here.' };
+
+  try {
+    return { doc: JSON.parse(file.content), error: null };
+  } catch {
+    return { doc: null, error: 'The synced data is not readable JSON.' };
+  }
+}
+
+export const render = ({ output }) => {
+  const { doc, error } = readDocument(output || '');
 
   const agenda = buildAgenda(doc, { use24Hour: true });
 

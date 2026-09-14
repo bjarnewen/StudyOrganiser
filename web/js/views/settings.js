@@ -77,7 +77,9 @@ export function render(context) {
       <dl class="status-list">
         <div><dt>Last synced</dt><dd>${escapeHtml(formatTimestamp(state.lastSyncedAt))}</dd></div>
         <div><dt>Status</dt><dd>${escapeHtml(state.syncStatusText || 'Idle')}</dd></div>
+        <div><dt>Gist ID</dt><dd><button type="button" class="copy-value" data-copy="${escapeHtml(syncConfig.gistId || '')}" title="Copy">${escapeHtml(syncConfig.gistId || '—')}</button></dd></div>
       </dl>
+      <p class="field-hint">The gist ID is what the desktop widget needs — see Widgets in the README.</p>
       <div class="button-row">
         <button type="button" class="secondary-button" data-sync-now>${icon('arrow.clockwise')}<span>Sync now</span></button>
         <button type="button" class="secondary-button destructive" data-sync-disconnect>Disconnect</button>
