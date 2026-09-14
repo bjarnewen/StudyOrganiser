@@ -236,25 +236,26 @@ so it still renders with no connection.
 ### Mac — Übersicht
 
 1. Install **[Übersicht](https://tracesof.net/uebersicht/)** (free) and launch it once.
-2. In the app, go to **Settings → Sync Across Devices** and copy the **Gist ID** shown there.
-3. In Terminal, paste this. It asks for your token without echoing it, and never puts either value
-   in your shell history:
+2. In the app: **Settings → Sync Across Devices → Gist ID**, and click it to copy.
+3. Download the setup script and run it:
 
    ```bash
-   mkdir -p ~/.config/study-organiser
-   printf 'GitHub token (hidden): '; stty -echo; read -r T; stty echo; printf '\n'
-   printf '%s' "$T" > ~/.config/study-organiser/token
-   printf 'Gist ID: '; read -r G
-   printf '%s' "$G" > ~/.config/study-organiser/gist-id
-   chmod 600 ~/.config/study-organiser/*
-   curl -fsSL https://bjarnewen.github.io/StudyOrganiser/widgets/study-organiser.jsx \
-     -o "$HOME/Library/Application Support/Übersicht/widgets/study-organiser.jsx"
+   curl -fsSL https://bjarnewen.github.io/StudyOrganiser/widgets/setup-mac.sh -o ~/Downloads/setup-mac.sh
+   bash ~/Downloads/setup-mac.sh
    ```
 
-4. Übersicht picks the file up on its own. If not, use its menu-bar icon → **Refresh All Widgets**.
+   It asks for the token (hidden as you type) and the Gist ID, checks both against GitHub before saving
+   anything, then installs the widget.
+
+Run it as a file, not pasted line by line and not piped into `bash`. A pasted block feeds its own next
+line into the prompt instead of waiting for you, and `curl | bash` leaves the prompts no terminal to read
+from — the script refuses that case rather than misbehaving.
+
+Re-running it is safe: it offers to keep whatever is already saved, so it doubles as a way to update the
+widget or replace an expired token.
 
 It refreshes every five minutes. Position and size are the `top`, `right` and `width` values in the
-`className` block near the bottom of the file — edit and save, and it reloads itself.
+`className` block near the bottom of `study-organiser.jsx` — edit and save, and Übersicht reloads it.
 
 The widget shells out only to `cat` and `curl`, both of which macOS always has. It deliberately avoids
 `/usr/bin/python3`, which on a clean Mac is a stub that prompts you to install the Command Line Tools;
