@@ -774,6 +774,16 @@ content.addEventListener('click', async (event) => {
   if (target.closest('[data-sync-disconnect]')) return disconnectSync();
   if (target.closest('[data-export-data]')) return exportBackup();
 
+  if (target.closest('[data-copy-diagnostics]')) {
+    const dump = content.querySelector('.diagnostic-dump');
+    if (dump) {
+      navigator.clipboard?.writeText(dump.textContent)
+        .then(() => toast('Diagnostic copied'))
+        .catch(() => toast('Could not copy — select the text by hand', 'error'));
+    }
+    return undefined;
+  }
+
   const copyButton = target.closest('[data-copy]');
   if (copyButton) {
     const value = copyButton.dataset.copy;

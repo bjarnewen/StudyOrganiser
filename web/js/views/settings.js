@@ -4,6 +4,7 @@
 import { typeBadge } from '../components.js';
 import { detectBlocks, formatBlockRange, currentBlock } from '../blocks.js';
 import { dateKey } from '../schedule.js';
+import { buildDiagnostics } from '../diagnostics.js';
 import { el, escapeHtml } from '../ui.js';
 import { icon } from '../icons.js';
 
@@ -145,6 +146,18 @@ export function render(context) {
       </section>
 
       ${rulesSection}
+
+      <section class="settings-group">
+        <h2>Diagnostics</h2>
+        <details class="disclosure">
+          <summary>Why isn't my work showing on a class?</summary>
+          <p class="field-hint">Each piece of work is checked against every condition that decides where it appears, and the one that failed is named. Copy this if something still looks wrong.</p>
+          <pre class="diagnostic-dump">${escapeHtml(buildDiagnostics(store))}</pre>
+          <div class="button-row">
+            <button type="button" class="secondary-button" data-copy-diagnostics>${icon('square.and.arrow.down')}<span>Copy</span></button>
+          </div>
+        </details>
+      </section>
 
       <section class="settings-group">
         <h2>This Device</h2>

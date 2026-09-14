@@ -7,7 +7,7 @@
 // Setup is in the project README, under "Widgets".
 
 // Bumped whenever this script changes; the update check compares against it.
-const VERSION = '3';
+const VERSION = '4';
 const SOURCE_URL = 'https://raw.githubusercontent.com/bjarnewen/StudyOrganiser/main/widgets/StudyOrganiser.scriptable.js';
 
 const GIST_FILENAME = 'study-organiser.json';
@@ -354,7 +354,7 @@ function buildWidget(agenda, { error, stale }) {
 
   const family = config.widgetFamily || 'medium';
   const compact = family === 'small';
-  const maxRows = family === 'small' ? 3 : (family === 'large' ? 9 : 4);
+  const maxRows = family === 'small' ? 3 : (family === 'large' ? 9 : 5);
 
   addHeader(widget, agenda, stale);
 
@@ -367,10 +367,11 @@ function buildWidget(agenda, { error, stale }) {
     return widget;
   }
 
-  // Listing what is due under each class costs vertical space, and a widget
-  // that overflows just clips. So detail lines come out of a fixed budget:
-  // the earliest classes get them, and the rest keep their flag count.
-  let itemBudget = family === 'small' ? 0 : (family === 'large' ? 7 : 2);
+  // Listing what is due costs vertical space and an overflowing widget clips,
+  // so detail lines come from a budget spent on the earliest classes; later
+  // ones keep their flag count. A small widget used to get none at all, which
+  // made it look like the work simply wasn't there.
+  let itemBudget = family === 'small' ? 2 : (family === 'large' ? 8 : 4);
 
   const shown = agenda.classes.slice(0, maxRows);
   for (const entry of shown) {

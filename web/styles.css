@@ -1076,3 +1076,19 @@ textarea.field-input { resize: vertical; min-height: 84px; }
 }
 
 .copy-value:hover { background: var(--fill-strong); }
+
+.diagnostic-dump {
+  margin: 0;
+  padding: 12px;
+  max-height: 340px;
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--fill);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+  -webkit-user-select: text;
+  user-select: text;
+}

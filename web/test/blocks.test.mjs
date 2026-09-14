@@ -303,3 +303,26 @@ test('dated work is flagged once, on the course’s first class that day', async
   const counts = occurrencesOn(store, today).map((o) => remindersForOccurrence(store, o).assignments.length);
   assert.deepEqual(counts, [1, 0]);
 });
+
+test('the diagnostic works on a fresh install and names why work is hidden', async () => {
+  const { buildDiagnostics } = await import('../js/diagnostics.js');
+  const empty = createStore(memoryPersistence());
+  const blank = buildDiagnostics(empty);
+  assert.match(blank, /Classes today \(0\)/);
+  assert.match(blank, /nothing can attach to a class today/);
+
+  const store = createStore(memoryPersistence());
+  const subject = store.insert('subjects', { name: 'Calculus 1', colorHex: '0A84FF' });
+  store.insert('assignments', {
+    title: 'Orphan', dueMode: 'date', dueDate: Date.now(), subjectId: null,
+    isCompleted: false, priority: 1, notes: '',
+  });
+  store.insert('assignments', {
+    title: 'Unanchored', dueMode: 'class', dueSubjectId: subject.id, subjectId: subject.id,
+    isCompleted: false, priority: 1, notes: '',
+  });
+
+  const report = buildDiagnostics(store);
+  assert.match(report, /"Orphan"[\s\S]*no subject, so there is no class/);
+  assert.match(report, /"Unanchored"[\s\S]*no upcoming class in the calendar/);
+});
