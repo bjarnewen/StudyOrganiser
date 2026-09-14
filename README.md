@@ -240,9 +240,12 @@ so it still renders with no connection.
 3. Download the setup script and run it:
 
    ```bash
-   curl -fsSL https://bjarnewen.github.io/StudyOrganiser/widgets/setup-mac.sh -o ~/Downloads/setup-mac.sh
+   curl -fsSL https://raw.githubusercontent.com/bjarnewen/StudyOrganiser/main/widgets/setup-mac.sh -o ~/Downloads/setup-mac.sh
    bash ~/Downloads/setup-mac.sh
    ```
+
+   That URL is the repository itself, so it works the moment a change is pushed rather than after the
+   site redeploys.
 
    It asks for the token (hidden as you type) and the Gist ID, checks both against GitHub before saving
    anything, then installs the widget.

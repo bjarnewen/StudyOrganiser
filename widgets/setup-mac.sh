@@ -9,7 +9,10 @@
 
 set -u
 
+# The published site is the primary source; the repository is the fallback, so
+# the script still works in the minutes after a deploy before Pages catches up.
 WIDGET_URL="https://bjarnewen.github.io/StudyOrganiser/widgets/study-organiser.jsx"
+WIDGET_URL_FALLBACK="https://raw.githubusercontent.com/bjarnewen/StudyOrganiser/main/widgets/study-organiser.jsx"
 CONFIG_DIR="$HOME/.config/study-organiser"
 WIDGET_DIR="$HOME/Library/Application Support/Übersicht/widgets"
 
@@ -109,7 +112,10 @@ say "  ✓ saved to $CONFIG_DIR (readable only by you)"
 
 # --- the widget itself -------------------------------------------------------
 if ! curl -fsSL --max-time 30 "$WIDGET_URL" -o "$WIDGET_DIR/study-organiser.jsx"; then
-  fail "Could not download the widget from $WIDGET_URL"
+  say "  · the published copy wasn't reachable, trying the repository…"
+  if ! curl -fsSL --max-time 30 "$WIDGET_URL_FALLBACK" -o "$WIDGET_DIR/study-organiser.jsx"; then
+    fail "Could not download the widget from either $WIDGET_URL or $WIDGET_URL_FALLBACK"
+  fi
 fi
 say "  ✓ widget installed in $WIDGET_DIR"
 
