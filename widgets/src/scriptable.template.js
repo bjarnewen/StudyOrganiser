@@ -7,7 +7,7 @@
 // Setup is in the project README, under "Widgets".
 
 // Bumped whenever this script changes; the update check compares against it.
-const VERSION = '2';
+const VERSION = '3';
 const SOURCE_URL = 'https://raw.githubusercontent.com/bjarnewen/StudyOrganiser/main/widgets/StudyOrganiser.scriptable.js';
 
 const GIST_FILENAME = 'study-organiser.json';
@@ -147,8 +147,10 @@ function addItemRow(widget, item, compact) {
   marker.font = Font.systemFont(compact ? 8 : 9);
   marker.textColor = item.kind === 'assignment' ? new Color('#ff3b30') : new Color('#ffd60a');
 
-  const text = row.addText(item.text);
-  text.font = Font.systemFont(compact ? 9.5 : 10.5);
+  const text = row.addText(item.overdue ? `${item.text} — overdue` : item.text);
+  text.font = item.overdue
+    ? Font.boldSystemFont(compact ? 9.5 : 10.5)
+    : Font.systemFont(compact ? 9.5 : 10.5);
   text.textColor = item.kind === 'assignment' ? new Color('#ff3b30') : new Color('#ffd60a');
   text.lineLimit = 1;
 

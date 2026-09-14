@@ -268,3 +268,38 @@ test('occurrencesOn returns a day in start-time order', () => {
   const day = occurrencesOn(store, '2025-09-16');
   assert.deepEqual(day.map((o) => o.startMinutes), [540, 840]);
 });
+
+test('a class flags its course’s dated work, not just "by next class" work', async () => {
+  const { remindersForOccurrence, occurrencesOn } = await import('../js/schedule.js');
+  const store = createStore(memoryPersistence());
+  const subject = store.insert('subjects', { name: 'Calculus 1', colorHex: '0A84FF' });
+  const klass = store.insert('classes', { matchKey: 'c', title: 'C', type: 'Lecture', subjectId: subject.id });
+  const today = dateKey(new Date());
+  store.insert('occurrences', { classId: klass.id, subjectId: subject.id, date: today, startMinutes: 1400, endMinutes: 1430, type: 'Lecture' });
+  store.insert('assignments', {
+    title: 'Weekly hand-in', dueMode: 'date', dueDate: Date.now(), subjectId: subject.id,
+    isCompleted: false, priority: 1, notes: '',
+  });
+
+  const [occurrence] = occurrencesOn(store, today);
+  const reminders = remindersForOccurrence(store, occurrence);
+  assert.deepEqual(reminders.assignments.map((a) => a.title), ['Weekly hand-in']);
+  assert.equal(reminders.total, 1);
+});
+
+test('dated work is flagged once, on the course’s first class that day', async () => {
+  const { remindersForOccurrence, occurrencesOn } = await import('../js/schedule.js');
+  const store = createStore(memoryPersistence());
+  const subject = store.insert('subjects', { name: 'Calculus 1', colorHex: '0A84FF' });
+  const klass = store.insert('classes', { matchKey: 'c', title: 'C', type: 'Lecture', subjectId: subject.id });
+  const today = dateKey(new Date());
+  store.insert('occurrences', { classId: klass.id, subjectId: subject.id, date: today, startMinutes: 540, endMinutes: 600, type: 'Lecture' });
+  store.insert('occurrences', { classId: klass.id, subjectId: subject.id, date: today, startMinutes: 900, endMinutes: 960, type: 'Tutorial' });
+  store.insert('assignments', {
+    title: 'Hand-in', dueMode: 'date', dueDate: Date.now(), subjectId: subject.id,
+    isCompleted: false, priority: 1, notes: '',
+  });
+
+  const counts = occurrencesOn(store, today).map((o) => remindersForOccurrence(store, o).assignments.length);
+  assert.deepEqual(counts, [1, 0]);
+});

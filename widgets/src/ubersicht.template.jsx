@@ -65,6 +65,7 @@ export const className = `
   .so-item { font-size: 10.5px; line-height: 1.35; display: flex; gap: 5px; }
   .so-item span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .so-item.so-assignment { color: #ff453a; }
+  .so-item.so-overdue { font-weight: 700; }
   .so-item.so-check { color: #ffd60a; }
   .so-more { font-size: 10px; color: rgba(235, 235, 245, 0.5); }
   .so-foot { margin-top: 8px; font-size: 11px; color: rgba(235, 235, 245, 0.6); }
@@ -132,10 +133,14 @@ export const render = ({ output }) => {
               {entry.items.slice(0, 4).map((item, index) => (
                 <div
                   key={`${entry.id}-${index}`}
-                  className={item.kind === 'assignment' ? 'so-item so-assignment' : 'so-item so-check'}
+                  className={[
+                    'so-item',
+                    item.kind === 'assignment' ? 'so-assignment' : 'so-check',
+                    item.overdue ? 'so-overdue' : '',
+                  ].join(' ').trim()}
                 >
                   <span>{item.kind === 'assignment' ? '●' : '○'}</span>
-                  <span>{item.text}</span>
+                  <span>{item.overdue ? `${item.text} — overdue` : item.text}</span>
                 </div>
               ))}
               {entry.items.length > 4 && (

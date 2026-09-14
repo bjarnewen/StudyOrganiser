@@ -125,8 +125,16 @@ test('dated work due today, and anything overdue, is reported', () => {
     tx.insert('assignments', { title: 'Next week', dueMode: 'date', dueDate: new Date('2026-09-30T09:00').getTime(), subjectId: calc.id, isCompleted: false, priority: 0, notes: '' });
   });
   const agenda = buildAgenda(doc, { dateKey: TODAY, minutesNow: 0 });
-  assert.deepEqual(agenda.dueToday.map((a) => a.title), ['Late lab report', 'Essay']);
-  assert.equal(agenda.overdueCount, 1);
+
+  // Both belong to Calculus, which meets today, so they hang off that class
+  // rather than sitting anonymously in the footer.
+  const calculus = agenda.classes.find((c) => c.subjectName === 'Calculus 1');
+  assert.deepEqual(calculus.items.map((i) => i.text), ['Late lab report', 'Essay']);
+  assert.deepEqual(calculus.items.map((i) => i.overdue), [true, false]);
+
+  // Work due beyond today is left alone, and nothing is left over for the footer.
+  assert.deepEqual(agenda.dueToday, []);
+  assert.equal(agenda.overdueCount, 0);
 });
 
 test('deleted records never surface in the widget', () => {
@@ -163,4 +171,75 @@ test('the Scriptable widget can recognise its own published version', async () =
   assert.ok(match, 'VERSION line must stay matchable');
   assert.match(match[1], /^\d+$/);
   assert.match(built, /SOURCE_URL = 'https:\/\/raw\.githubusercontent\.com\//);
+});
+
+test('work with a due date shows under its own class', () => {
+  const doc = documentWith((tx) => {
+    const { calc } = seed(tx);
+    tx.insert('assignments', {
+      title: 'Weekly hand-in', dueMode: 'date', dueDate: new Date(`${TODAY}T23:00`).getTime(),
+      subjectId: calc.id, isCompleted: false, priority: 1, notes: '',
+    });
+  });
+  const agenda = buildAgenda(doc, { dateKey: TODAY, minutesNow: 0 });
+  const calculus = agenda.classes.find((c) => c.subjectName === 'Calculus 1');
+  assert.deepEqual(calculus.items.map((i) => i.text), ['Weekly hand-in']);
+  assert.equal(agenda.dueToday.length, 0, 'not repeated in the footer once a class shows it');
+});
+
+test('overdue dated work still surfaces under the class, marked overdue', () => {
+  const doc = documentWith((tx) => {
+    const { calc } = seed(tx);
+    tx.insert('assignments', {
+      title: 'Late problem set', dueMode: 'date', dueDate: new Date('2026-09-01T09:00').getTime(),
+      subjectId: calc.id, isCompleted: false, priority: 2, notes: '',
+    });
+  });
+  const calculus = buildAgenda(doc, { dateKey: TODAY, minutesNow: 0 })
+    .classes.find((c) => c.subjectName === 'Calculus 1');
+  assert.equal(calculus.items[0].text, 'Late problem set');
+  assert.equal(calculus.items[0].overdue, true);
+});
+
+test('work due later than today is not pulled forward', () => {
+  const doc = documentWith((tx) => {
+    const { calc } = seed(tx);
+    tx.insert('assignments', {
+      title: 'Next month', dueMode: 'date', dueDate: new Date('2026-10-20T09:00').getTime(),
+      subjectId: calc.id, isCompleted: false, priority: 1, notes: '',
+    });
+  });
+  const agenda = buildAgenda(doc, { dateKey: TODAY, minutesNow: 0 });
+  assert.equal(agenda.classes.every((c) => c.items.length === 0), true);
+  assert.equal(agenda.dueToday.length, 0);
+});
+
+test("another course's dated work stays in the footer, not on an unrelated class", () => {
+  const doc = documentWith((tx) => {
+    seed(tx);
+    const other = tx.insert('subjects', { name: 'German', colorHex: '34C759' });
+    tx.insert('assignments', {
+      title: 'Vocabulary list', dueMode: 'date', dueDate: new Date(`${TODAY}T12:00`).getTime(),
+      subjectId: other.id, isCompleted: false, priority: 0, notes: '',
+    });
+  });
+  const agenda = buildAgenda(doc, { dateKey: TODAY, minutesNow: 0 });
+  assert.equal(agenda.classes.every((c) => c.items.length === 0), true);
+  assert.deepEqual(agenda.dueToday.map((a) => a.title), ['Vocabulary list']);
+});
+
+test('a course meeting twice today shows its dated work once, on the first class', () => {
+  const doc = documentWith((tx) => {
+    const { calc } = seed(tx);
+    const extra = tx.insert('classes', { matchKey: 'calc-tut', title: 'Calculus tutorial', type: 'Tutorial', subjectId: calc.id });
+    tx.insert('occurrences', { classId: extra.id, subjectId: calc.id, date: TODAY, startMinutes: 900, endMinutes: 990, type: 'Tutorial' });
+    tx.insert('assignments', {
+      title: 'Hand-in', dueMode: 'date', dueDate: new Date(`${TODAY}T23:00`).getTime(),
+      subjectId: calc.id, isCompleted: false, priority: 1, notes: '',
+    });
+  });
+  const agenda = buildAgenda(doc, { dateKey: TODAY, minutesNow: 0 });
+  const calcClasses = agenda.classes.filter((c) => c.subjectName === 'Calculus 1');
+  assert.equal(calcClasses.length, 2);
+  assert.deepEqual(calcClasses.map((c) => c.items.length), [1, 0], 'only the earlier one carries it');
 });

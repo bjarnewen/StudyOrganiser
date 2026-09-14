@@ -102,24 +102,18 @@ function buildAgenda(doc, options) {
   const assignments = liveRecords(doc.assignments).filter((assignment) => !assignment.isCompleted);
   const checkItems = liveRecords(doc.checkItems).filter((item) => !item.isResolved);
 
+  const startOfToday = new Date(`${dateKey}T00:00:00`).getTime();
+  const endOfToday = startOfToday + 86400000;
+
   const classes = occurrences
     .filter((occurrence) => occurrence.date === dateKey)
     .sort((a, b) => a.startMinutes - b.startMinutes)
     .map((occurrence) => {
       const subject = subjects.get(occurrence.subjectId);
       const next = nextOccurrenceForSubject(occurrences, occurrence.subjectId, dateKey, minutesNow);
-      const isNext = Boolean(next && next.id === occurrence.id);
-
-      // Work only counts against the class it is actually due by.
-      const due = isNext
-        ? assignments.filter((a) => a.dueMode === 'class' && a.dueSubjectId === occurrence.subjectId)
-        : [];
-      const checks = isNext
-        ? checkItems.filter((item) => item.subjectId === occurrence.subjectId)
-        : [];
-
       return {
         id: occurrence.id,
+        subjectId: occurrence.subjectId,
         startMinutes: occurrence.startMinutes,
         endMinutes: occurrence.endMinutes,
         time: formatMinutes(occurrence.startMinutes, use24Hour),
@@ -129,28 +123,59 @@ function buildAgenda(doc, options) {
         type: occurrence.type || 'Other',
         location: occurrence.location || '',
         isPast: occurrence.endMinutes <= minutesNow,
-        isNext,
-        due: due.map((a) => ({ title: a.title, priority: a.priority })),
-        checks: checks.map((item) => ({ text: item.text })),
-        // One list in a fixed order, so both widgets show the same thing in the
-        // same sequence: work due by this class first, then what to check
-        // before it.
-        items: [
-          ...due.map((a) => ({ kind: 'assignment', text: a.title, priority: a.priority })),
-          ...checks.map((item) => ({ kind: 'check', text: item.text })),
-        ],
-        reminderCount: due.length + checks.length,
+        isNext: Boolean(next && next.id === occurrence.id),
+        due: [],
+        checks: [],
+        items: [],
+        reminderCount: 0,
       };
     });
 
-  // Date-based work, which belongs to the day rather than to a class.
-  const startOfToday = new Date(`${dateKey}T00:00:00`).getTime();
-  const endOfToday = startOfToday + 86400000;
-  const dated = assignments.filter((a) => a.dueMode !== 'class' && typeof a.dueDate === 'number');
+  // Work with a due *date* is the common case — it is what the editor offers by
+  // default — so a class has to show its course's dated work too, not only the
+  // pieces explicitly set "by next class". Otherwise a class shows nothing while
+  // an assignment for it sits overdue.
+  const datedForToday = assignments
+    .filter((a) => a.dueMode !== 'class' && typeof a.dueDate === 'number' && a.dueDate < endOfToday)
+    .sort((a, b) => a.dueDate - b.dueDate);
 
-  const dueToday = dated
-    .filter((a) => a.dueDate < endOfToday)
-    .sort((a, b) => a.dueDate - b.dueDate)
+  // A course can meet twice in a day; dated work belongs to the first of them
+  // rather than being repeated under each.
+  const claimed = new Set();
+
+  for (const entry of classes) {
+    const byClass = entry.isNext
+      ? assignments.filter((a) => a.dueMode === 'class' && a.dueSubjectId === entry.subjectId)
+      : [];
+
+    const byDate = datedForToday.filter((a) => {
+      if (!entry.subjectId || a.subjectId !== entry.subjectId) return false;
+      if (claimed.has(a.id)) return false;
+      claimed.add(a.id);
+      return true;
+    });
+
+    const checks = entry.isNext
+      ? checkItems.filter((item) => item.subjectId === entry.subjectId)
+      : [];
+
+    entry.due = [...byClass, ...byDate].map((a) => ({ title: a.title, priority: a.priority }));
+    entry.checks = checks.map((item) => ({ text: item.text }));
+    // One list in a fixed order, so both widgets show the same thing in the
+    // same sequence: work due by this class, then dated work for the course,
+    // then what to check before it.
+    entry.items = [
+      ...byClass.map((a) => ({ kind: 'assignment', text: a.title, priority: a.priority, overdue: false })),
+      ...byDate.map((a) => ({ kind: 'assignment', text: a.title, priority: a.priority, overdue: a.dueDate < startOfToday })),
+      ...checks.map((item) => ({ kind: 'check', text: item.text, overdue: false })),
+    ];
+    entry.reminderCount = entry.items.length;
+  }
+
+  // The footer covers what no class today accounted for — another course's
+  // work, or something with no subject at all.
+  const dueToday = datedForToday
+    .filter((a) => !claimed.has(a.id))
     .map((a) => {
       const subject = subjects.get(a.subjectId);
       return {
@@ -199,6 +224,7 @@ export const className = `
   .so-item { font-size: 10.5px; line-height: 1.35; display: flex; gap: 5px; }
   .so-item span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .so-item.so-assignment { color: #ff453a; }
+  .so-item.so-overdue { font-weight: 700; }
   .so-item.so-check { color: #ffd60a; }
   .so-more { font-size: 10px; color: rgba(235, 235, 245, 0.5); }
   .so-foot { margin-top: 8px; font-size: 11px; color: rgba(235, 235, 245, 0.6); }
@@ -266,10 +292,14 @@ export const render = ({ output }) => {
               {entry.items.slice(0, 4).map((item, index) => (
                 <div
                   key={`${entry.id}-${index}`}
-                  className={item.kind === 'assignment' ? 'so-item so-assignment' : 'so-item so-check'}
+                  className={[
+                    'so-item',
+                    item.kind === 'assignment' ? 'so-assignment' : 'so-check',
+                    item.overdue ? 'so-overdue' : '',
+                  ].join(' ').trim()}
                 >
                   <span>{item.kind === 'assignment' ? '●' : '○'}</span>
-                  <span>{item.text}</span>
+                  <span>{item.overdue ? `${item.text} — overdue` : item.text}</span>
                 </div>
               ))}
               {entry.items.length > 4 && (

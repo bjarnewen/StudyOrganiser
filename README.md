@@ -209,8 +209,10 @@ The tests run in CI before every deploy, so a broken parser can't reach your dev
 
 ## Widgets
 
-A widget showing today's classes and, under each, exactly what it needs: **● in red** is work due by
-that class, **○ in amber** is something you noted to check before it. The flag beside a class counts both.
+A widget showing today's classes and, under each, exactly what it needs: **● in red** is work due —
+either set "by next class" for that course, or with a due date that has arrived — and **○ in amber** is
+something you noted to check before it. Overdue work is bold and labelled. The flag beside a class counts
+the lot. Anything dated for a course with no class today is summarised underneath instead.
 
 **Why these aren't built into the app:** widgets come from WidgetKit, and only a native, signed app can
 ship one. A site added to the Home Screen has no way to provide a widget — that's Apple's restriction,

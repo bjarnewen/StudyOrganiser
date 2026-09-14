@@ -112,14 +112,38 @@ export function allCheckItems(store, subjectId) {
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 
-/// What a class in the Today view should warn about: work due by it, and
-/// things noted to check before it.
+/// This course's outstanding dated work that has reached its deadline. Most
+/// assignments are set by date rather than "by next class", so a class has to
+/// account for those too or it looks clear while work for it is overdue.
+export function datedWorkDueFor(store, subjectId, { fromKey = todayKey() } = {}) {
+  if (!subjectId) return [];
+  const endOfDay = dateFromKey(fromKey).getTime() + 86400000;
+  return store.all('assignments')
+    .filter((assignment) => !assignment.isCompleted
+      && assignment.dueMode !== 'class'
+      && assignment.subjectId === subjectId
+      && typeof assignment.dueDate === 'number'
+      && assignment.dueDate < endOfDay)
+    .sort((a, b) => a.dueDate - b.dueDate);
+}
+
+/// What a class in the Today view should warn about: work due by it, this
+/// course's dated work that is due or overdue, and things noted to check first.
 export function remindersForOccurrence(store, occurrence) {
   const next = nextOccurrenceForSubject(store, occurrence.subjectId);
-  const isNext = next && next.id === occurrence.id;
-  if (!isNext) return { assignments: [], checkItems: [], total: 0 };
-  const assignments = assignmentsDueAtOccurrence(store, occurrence);
-  const checkItems = openCheckItems(store, occurrence.subjectId);
+  const isNext = Boolean(next && next.id === occurrence.id);
+
+  const byClass = isNext ? assignmentsDueAtOccurrence(store, occurrence) : [];
+  const checkItems = isNext ? openCheckItems(store, occurrence.subjectId) : [];
+
+  // Dated work belongs to the day, so it shows on the course's first class of
+  // it rather than being repeated on every meeting.
+  const dated = datedWorkDueFor(store, occurrence.subjectId, { fromKey: occurrence.date });
+  const earlier = occurrencesOn(store, occurrence.date)
+    .some((other) => other.subjectId === occurrence.subjectId && other.startMinutes < occurrence.startMinutes);
+  const byDate = earlier ? [] : dated;
+
+  const assignments = [...byClass, ...byDate];
   return { assignments, checkItems, total: assignments.length + checkItems.length };
 }
 
