@@ -6,6 +6,10 @@
 //
 // Setup is in the project README, under "Widgets".
 
+// Bumped whenever this script changes; the update check compares against it.
+const VERSION = '2';
+const SOURCE_URL = 'https://raw.githubusercontent.com/bjarnewen/StudyOrganiser/main/widgets/StudyOrganiser.scriptable.js';
+
 const GIST_FILENAME = 'study-organiser.json';
 const TOKEN_KEY = 'studyOrganiser.token';
 const GIST_KEY = 'studyOrganiser.gistId';
@@ -371,19 +375,81 @@ function buildWidget(agenda, { error, stale }) {
   return widget;
 }
 
+// --------------------------------------------------------------- self-update
+
+/// Scriptable scripts live either in iCloud Drive or locally, depending on the
+/// install; pick whichever one actually holds this file.
+function fileManagerForScript() {
+  const iCloud = FileManager.iCloud();
+  try {
+    if (iCloud.fileExists(module.filename)) return iCloud;
+  } catch {
+    // Not an iCloud install.
+  }
+  return FileManager.local();
+}
+
+/// Offers to replace this script with the published version. Only ever runs
+/// when you open the script yourself — a widget refresh must not rewrite code
+/// behind your back, and should not spend time on a second network request.
+async function offerUpdate() {
+  let latest;
+  try {
+    latest = await new Request(SOURCE_URL).loadString();
+  } catch {
+    return false; // offline, or GitHub is unreachable; not worth interrupting for
+  }
+
+  const match = latest.match(/^const VERSION = '([^']+)';$/m);
+  if (!match || match[1] === VERSION) return false;
+
+  const alert = new Alert();
+  alert.title = 'Update available';
+  alert.message = `Version ${match[1]} is published; this is ${VERSION}. Replace this script with the new one?`;
+  alert.addAction('Update');
+  alert.addCancelAction('Not now');
+  if (await alert.present() === -1) return false;
+
+  try {
+    fileManagerForScript().writeString(module.filename, latest);
+  } catch (error) {
+    const failed = new Alert();
+    failed.title = 'Could not update';
+    failed.message = error.message;
+    failed.addCancelAction('OK');
+    await failed.present();
+    return false;
+  }
+
+  const done = new Alert();
+  done.title = 'Updated';
+  done.message = `Now on version ${match[1]}. Run it once more to see the new widget.`;
+  done.addCancelAction('OK');
+  await done.present();
+  return true;
+}
+
 // ----------------------------------------------------------------------- main
 
-if (!storedToken() && !config.runsInWidget) {
-  await promptForToken();
+// Opening the script yourself is the only moment it may rewrite itself; a
+// widget refresh just draws. After an update the old code is still running,
+// so stop here rather than render a stale view.
+const replaced = config.runsInWidget ? false : await offerUpdate();
+
+if (!replaced) {
+  if (!storedToken() && !config.runsInWidget) {
+    await promptForToken();
+  }
+
+  const { doc, error, stale } = await loadDocument();
+  const agenda = buildAgenda(doc, { use24Hour: true });
+  const widget = buildWidget(agenda, { error, stale });
+
+  if (config.runsInWidget) {
+    Script.setWidget(widget);
+  } else {
+    await widget.presentMedium();
+  }
 }
 
-const { doc, error, stale } = await loadDocument();
-const agenda = buildAgenda(doc, { use24Hour: true });
-const widget = buildWidget(agenda, { error, stale });
-
-if (config.runsInWidget) {
-  Script.setWidget(widget);
-} else {
-  await widget.presentMedium();
-}
 Script.complete();

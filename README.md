@@ -231,6 +231,10 @@ changing that file, run `node scripts/build-widgets.mjs`; CI fails if the commit
 5. Long-press the Home Screen → **+** → **Scriptable** → pick a size → **Add Widget**. Then tap the new
    widget, set **Script** to *Study Organiser*, and **When Interacting** to *Run Script*.
 
+**Updating it later:** open the script in Scriptable and press ▶. If a newer version has been published
+it offers to replace itself, then asks you to run it once more. Only a manual run can do this — a widget
+refresh never rewrites code on its own, and never spends a network request checking.
+
 Small shows three classes, medium four, large nine. Because detail lines cost vertical space and an
 overflowing widget just clips, they come out of a fixed budget — none on small, two on medium, seven on
 large — given to the earliest classes; the rest keep their flag count. Tapping it opens the app, and the

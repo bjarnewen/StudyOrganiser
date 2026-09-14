@@ -151,3 +151,16 @@ test('times can be rendered in 12-hour form', () => {
   const agenda = buildAgenda(doc, { dateKey: TODAY, minutesNow: 0, use24Hour: false });
   assert.deepEqual(agenda.classes.map((c) => c.time), ['9:00am', '10:15am']);
 });
+
+test('the Scriptable widget can recognise its own published version', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const built = await readFile(new URL('../../widgets/StudyOrganiser.scriptable.js', import.meta.url), 'utf8');
+
+  // The script downloads its published self and reads the version out with
+  // this exact expression; if the line moves or changes shape, self-updating
+  // silently stops working.
+  const match = built.match(/^const VERSION = '([^']+)';$/m);
+  assert.ok(match, 'VERSION line must stay matchable');
+  assert.match(match[1], /^\d+$/);
+  assert.match(built, /SOURCE_URL = 'https:\/\/raw\.githubusercontent\.com\//);
+});
