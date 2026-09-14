@@ -61,7 +61,12 @@ export const className = `
   .so-name { font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .so-flag { font-size: 11px; font-weight: 700; color: #ff453a; }
   .so-past { opacity: 0.42; }
-  .so-detail { font-size: 10.5px; color: #ff453a; margin: -2px 0 2px 51px; }
+  .so-items { margin: -1px 0 4px 51px; display: flex; flex-direction: column; gap: 1px; }
+  .so-item { font-size: 10.5px; line-height: 1.35; display: flex; gap: 5px; }
+  .so-item span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .so-item.so-assignment { color: #ff453a; }
+  .so-item.so-check { color: #ffd60a; }
+  .so-more { font-size: 10px; color: rgba(235, 235, 245, 0.5); }
   .so-foot { margin-top: 8px; font-size: 11px; color: rgba(235, 235, 245, 0.6); }
   .so-foot.so-overdue { color: #ff453a; font-weight: 600; }
   .so-empty { font-size: 12px; color: rgba(235, 235, 245, 0.6); }
@@ -122,8 +127,21 @@ export const render = ({ output }) => {
             <span className="so-name">{entry.subjectName}</span>
             {entry.reminderCount > 0 && <span className="so-flag">⚑{entry.reminderCount}</span>}
           </div>
-          {entry.due.length > 0 && (
-            <div className="so-detail">{entry.due.map((d) => d.title).join(', ')}</div>
+          {entry.items.length > 0 && (
+            <div className="so-items">
+              {entry.items.slice(0, 4).map((item, index) => (
+                <div
+                  key={`${entry.id}-${index}`}
+                  className={item.kind === 'assignment' ? 'so-item so-assignment' : 'so-item so-check'}
+                >
+                  <span>{item.kind === 'assignment' ? '●' : '○'}</span>
+                  <span>{item.text}</span>
+                </div>
+              ))}
+              {entry.items.length > 4 && (
+                <div className="so-more">+{entry.items.length - 4} more</div>
+              )}
+            </div>
           )}
         </div>
       ))}

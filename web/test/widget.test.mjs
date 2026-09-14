@@ -85,6 +85,30 @@ test('completed work is not flagged', () => {
   assert.equal(agenda.classes.every((c) => c.reminderCount === 0), true);
 });
 
+test('each class carries its due work and its notes as one ordered list', () => {
+  const doc = documentWith((tx) => {
+    const { calc } = seed(tx, { withAssignment: true });
+    tx.insert('checkItems', { text: 'Skim section 4.2', isResolved: false, subjectId: calc.id });
+    tx.insert('checkItems', { text: 'Bring the printed sheet', isResolved: false, subjectId: calc.id });
+  });
+  const agenda = buildAgenda(doc, { dateKey: TODAY, minutesNow: 0 });
+  const calculus = agenda.classes.find((c) => c.subjectName === 'Calculus 1');
+
+  // Work due by the class first, then what to check before it.
+  assert.deepEqual(calculus.items.map((i) => i.kind), ['assignment', 'check', 'check']);
+  assert.equal(calculus.items[0].text, 'Problem set 3');
+  assert.deepEqual(calculus.items.slice(1).map((i) => i.text).sort(), [
+    'Bring the printed sheet', 'Skim section 4.2',
+  ]);
+  assert.equal(calculus.reminderCount, 3);
+});
+
+test('a class with nothing pending has an empty item list', () => {
+  const doc = documentWith((tx) => seed(tx));
+  const agenda = buildAgenda(doc, { dateKey: TODAY, minutesNow: 0 });
+  assert.equal(agenda.classes.every((c) => c.items.length === 0), true);
+});
+
 test('check-before-class notes count towards the flag', () => {
   const doc = documentWith((tx) => seed(tx, { withCheck: true }));
   const agenda = buildAgenda(doc, { dateKey: TODAY, minutesNow: 0 });

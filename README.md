@@ -209,7 +209,8 @@ The tests run in CI before every deploy, so a broken parser can't reach your dev
 
 ## Widgets
 
-A widget showing today's classes and what's due by each, on the iPad Home Screen and the Mac desktop.
+A widget showing today's classes and, under each, exactly what it needs: **● in red** is work due by
+that class, **○ in amber** is something you noted to check before it. The flag beside a class counts both.
 
 **Why these aren't built into the app:** widgets come from WidgetKit, and only a native, signed app can
 ship one. A site added to the Home Screen has no way to provide a widget — that's Apple's restriction,
@@ -230,8 +231,10 @@ changing that file, run `node scripts/build-widgets.mjs`; CI fails if the commit
 5. Long-press the Home Screen → **+** → **Scriptable** → pick a size → **Add Widget**. Then tap the new
    widget, set **Script** to *Study Organiser*, and **When Interacting** to *Run Script*.
 
-Small shows three classes, medium four, large nine. Tapping it opens the app. The last fetch is cached,
-so it still renders with no connection.
+Small shows three classes, medium four, large nine. Because detail lines cost vertical space and an
+overflowing widget just clips, they come out of a fixed budget — none on small, two on medium, seven on
+large — given to the earliest classes; the rest keep their flag count. Tapping it opens the app, and the
+last fetch is cached so it still renders with no connection.
 
 ### Mac — Übersicht
 

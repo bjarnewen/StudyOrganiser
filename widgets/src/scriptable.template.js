@@ -134,6 +134,23 @@ function addHeader(widget, agenda, stale) {
   widget.addSpacer(6);
 }
 
+function addItemRow(widget, item, compact) {
+  const row = widget.addStack();
+  row.spacing = 5;
+  row.addSpacer(compact ? 9 : 11);
+
+  const marker = row.addText(item.kind === 'assignment' ? '●' : '○');
+  marker.font = Font.systemFont(compact ? 8 : 9);
+  marker.textColor = item.kind === 'assignment' ? new Color('#ff3b30') : new Color('#ffd60a');
+
+  const text = row.addText(item.text);
+  text.font = Font.systemFont(compact ? 9.5 : 10.5);
+  text.textColor = item.kind === 'assignment' ? new Color('#ff3b30') : new Color('#ffd60a');
+  text.lineLimit = 1;
+
+  row.addSpacer();
+}
+
 function addClassRow(widget, entry, { compact }) {
   const row = widget.addStack();
   row.centerAlignContent();
@@ -163,12 +180,6 @@ function addClassRow(widget, entry, { compact }) {
     flag.textColor = new Color('#ff3b30');
   }
 
-  if (!compact && entry.due.length > 0) {
-    const detail = widget.addText(`   ${entry.due.map((d) => d.title).join(', ')}`);
-    detail.font = Font.systemFont(10);
-    detail.textColor = new Color('#ff3b30');
-    detail.lineLimit = 1;
-  }
 }
 
 function buildWidget(agenda, { error, stale }) {
@@ -191,9 +202,19 @@ function buildWidget(agenda, { error, stale }) {
     return widget;
   }
 
+  // Listing what is due under each class costs vertical space, and a widget
+  // that overflows just clips. So detail lines come out of a fixed budget:
+  // the earliest classes get them, and the rest keep their flag count.
+  let itemBudget = family === 'small' ? 0 : (family === 'large' ? 7 : 2);
+
   const shown = agenda.classes.slice(0, maxRows);
   for (const entry of shown) {
     addClassRow(widget, entry, { compact });
+    for (const item of entry.items) {
+      if (itemBudget <= 0) break;
+      addItemRow(widget, item, compact);
+      itemBudget -= 1;
+    }
     widget.addSpacer(compact ? 3 : 5);
   }
 

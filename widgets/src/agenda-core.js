@@ -93,6 +93,13 @@ function buildAgenda(doc, options) {
         isNext,
         due: due.map((a) => ({ title: a.title, priority: a.priority })),
         checks: checks.map((item) => ({ text: item.text })),
+        // One list in a fixed order, so both widgets show the same thing in the
+        // same sequence: work due by this class first, then what to check
+        // before it.
+        items: [
+          ...due.map((a) => ({ kind: 'assignment', text: a.title, priority: a.priority })),
+          ...checks.map((item) => ({ kind: 'check', text: item.text })),
+        ],
         reminderCount: due.length + checks.length,
       };
     });
